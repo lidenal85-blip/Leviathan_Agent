@@ -119,3 +119,39 @@ DECOMPOSER → ARCHITECT → AUDITOR
 | Prompt Base | ✅ |
 | Итоговый отчёт + промт | ✅ (ниже) |
 
+
+---
+
+## Сессия 2026-05-24 — Интеграция v3.1: ModelRouter + ClaudeAdapter + ArbitrTools
+**Модель:** Claude Sonnet 4.6  
+**Задача:** Активация приоритетов из NEXT_SESSION_PROMPT.md  
+**Статус:** ✅ Завершена
+
+### ШАГ 1 — Изучение репо и восстановление файлов ✅
+- Обнаружили что репо содержало v3.0 с ArbitrCockpit, MCP, docs
+- Восстановили 26 файлов через GitHub API после случайного force push
+- Файлы: docs/, mcp_server/, execution/, core_bridge/, agent/tools_arbitr.py
+
+### ШАГ 2 — Запуш новых файлов от Denis ✅
+- `agent/model_router.py` — роутер Gemini/Claude (5 режимов: AUTO/GEMINI_ONLY/CLAUDE_ONLY/GEMINI_THINK_CLAUDE/CLAUDE_THINK_GEMINI)
+- `core_bridge/claude_adapter.py` — CLI+API адаптер, extended thinking
+- `main.py` v3.1 — NullNotifier, ModelRouter интеграция, дашборд с выбором модели
+
+### ШАГ 3 — ПРИОРИТЕТ 1: Активация tools_arbitr.py ✅
+- `agent/tools.py`: добавлен `register_arbitr_tools()` в конце файла
+- Импорт через try/except — если ArbitrCockpit не установлен, работает без него
+
+### ШАГ 4 — Settings + .env.example обновлены ✅
+- `config/settings.py`: добавлены ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_THINKING_BUDGET, MODEL_MODE, ARBITR_URL
+- `.env.example`: задокументированы все новые переменные
+
+### ШАГ 5 — ПРИОРИТЕТ 3: Расширенный SYSTEM_PROMPT ✅
+- `agent/core.py`: SYSTEM_PROMPT заменён на v3.1 из docs/PROMPT_BASE.md
+- Добавлено: ArbitrCockpit, [DECOMPOSER]/[ARCHITECT]/[AUDITOR] режимы ролей
+- Добавлено: Claude CLI fallback инструкция
+
+## Итог сессии 2026-05-24
+**Статус:** ✅ Завершена  
+**Создано:** docs/sessions/2026-05-24_v3.1-integration.md  
+**Изменено:** agent/tools.py, agent/core.py, config/settings.py, .env.example, main.py, agent/model_router.py, core_bridge/claude_adapter.py  
+**TODO:** ПРИОРИТЕТ 2 (claude_adapter.py в KeyPool fallback), ПРИОРИТЕТ 4 (MCP в production), деплой на сервер
