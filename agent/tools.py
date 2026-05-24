@@ -325,3 +325,11 @@ GEMINI_TOOLS = [
         },
     },
 ]
+
+
+# ── ArbitrCockpit инструменты (опционально) ────────────────
+try:
+    from agent.tools_arbitr import register_arbitr_tools
+    register_arbitr_tools(TOOLS_REGISTRY, GEMINI_TOOLS)
+except ImportError:
+    pass  # ArbitrCockpit не установлен — работаем без него

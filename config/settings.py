@@ -57,6 +57,18 @@ class Settings(BaseSettings):
     # ── Модель ──────────────────────────────────────────────────
     GEMINI_MODEL: str = "gemini-2.0-flash"
 
+
+    # ── Claude / Anthropic ──────────────────────────────────────
+    ANTHROPIC_API_KEY:      str = ""
+    CLAUDE_MODEL:           str = "claude-sonnet-4-5"
+    CLAUDE_THINKING_BUDGET: int = 10_000
+
+    # ── Model Router ────────────────────────────────────────────
+    MODEL_MODE: str = "AUTO"  # AUTO|GEMINI_ONLY|CLAUDE_ONLY|GEMINI_THINK_CLAUDE|CLAUDE_THINK_GEMINI
+
+    # ── ArbitrCockpit ───────────────────────────────────────────
+    ARBITR_URL: str = "http://localhost:8090"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
@@ -81,6 +93,23 @@ class Settings(BaseSettings):
     @property
     def tg_configured(self) -> bool:
         return bool(self.TG_BOT_TOKEN and self.TG_ADMIN_CHAT_ID)
+
+
+    @property
+    def model_mode(self) -> str:
+        return self.MODEL_MODE
+
+    @property
+    def anthropic_api_key(self) -> str:
+        return self.ANTHROPIC_API_KEY
+
+    @property
+    def claude_model(self) -> str:
+        return self.CLAUDE_MODEL
+
+    @property
+    def claude_thinking_budget(self) -> int:
+        return self.CLAUDE_THINKING_BUDGET
 
 
 _settings: Optional[Settings] = None
