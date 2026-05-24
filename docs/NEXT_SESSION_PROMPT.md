@@ -1,46 +1,68 @@
-# Промт для следующей сессии
+# Передаточный промт — следующая сессия
 
 Скопируй и отправь в начале новой сессии:
 
 ---
 
 ```
-Репозиторий: github.com/lidenal85-blip/Leviathan_Agent (ветка main, коммит 5f8819b)
+Репозиторий: github.com/lidenal85-blip/Leviathan_Agent
 Сервер: root@78.17.24.96 | leviathanstory.ru
+Telegram: @Levi_Engi_bot (работает)
 
-Прочитай docs/sessions/2026-05-25_v3.2-claude-session.md — там полный отчёт предыдущей сессии.
+Прочитай docs/sessions/2026-05-25_deploy-and-arbitr.md — последний отчёт.
 
-Проект готов к деплою. Задачи по приоритету:
+СТАТУС:
+- Leviathan Agent v3.1 задеплоен, работает на порту 8200 ✅
+- Telegram бот активен ✅
+- ArbitrCockpit интеграция — код готов, нужно тестировать
 
-1. ДЕПЛОЙ: выполни команды из раздела "ПРИОРИТЕТ 1: Деплой на сервер" 
-   в docs/sessions/2026-05-25_v3.2-claude-session.md.
-   GitHub токен нужно заменить на свежий (старый отозван).
+ЗАДАЧА СЕССИИ: ArbitrCockpit интеграция
 
-2. После деплоя — протестируй: curl http://78.17.24.96:8200/health
+Шаг 1 — проверить что Arbitr запущен:
+  curl http://localhost:8090/health
 
-3. Если деплой OK — переходи к ПРИОРИТЕТ 2 (React дашборд)
-   или ПРИОРИТЕТ 3 (GCE MCP) по желанию.
+Шаг 2 — если не запущен, найти где он живёт:
+  find /opt /root /var/www -name "*.py" | xargs grep -l "arbitr" 2>/dev/null | head -5
 
-Стек: Python 3.12 / FastAPI / Gemini 2.0 Flash / aiogram 3 / SQLite
+Шаг 3 — протестировать arbitr инструменты через агента:
+  POST http://localhost:8200/api/tasks
+  {"prompt": "Оцени проект: Telegram бот для записи клиентов с оплатой ЮКасса. Используй arbitr_lisa_estimate с project_type=bot_fsm.", "mode": "NORMAL"}
+
+Шаг 4 — если Arbitr живой, тест полного пайплайна:
+  {"prompt": "Найди первый заказ в ArbitrCockpit и покажи его статус конвейера", "mode": "NORMAL"}
+
+Шаг 5 — задокументировать результат, обновить SYSTEM_PROMPT если нужно.
 ```
 
 ---
 
-## Контекст (для понимания без чтения всего репо)
+## Архитектура (быстрый контекст)
 
-**Что это:** Автономный DevOps-агент. Принимает задачи через Telegram / REST / WebUI,
-выполняет их через Gemini function calling (до 50 итераций),
-пишет в ExecutionJournal, идемпотентность через OperationRegistry.
+```
+Leviathan Agent (8200)
+  └── agent/tools_arbitr.py → ArbitrCockpit API (8090)
+        ├── arbitr_lisa_estimate     (автономно, без сети)
+        ├── arbitr_pipeline_status   → GET /api/orders/{id}/pipeline
+        ├── arbitr_pipeline_start    → POST /api/orders/{id}/pipeline/advance
+        ├── arbitr_render_prompt     → GET /api/orders/{id}/pipeline/{run_id}
+        ├── arbitr_submit_response   → POST /api/orders/{id}/pipeline/{run_id}/submit-response
+        └── arbitr_run_auto_stage    → POST /api/orders/{id}/pipeline/{run_id}/run-auto
+```
 
-**Ключевые файлы:**
-- `main.py` — точка входа, инициализация всех зависимостей
-- `agent/core.py` — LeviathanAgent (ReAct loop + ModelRouter + ClaudeAdapter)
-- `agent/tools.py` + `agent/tools_arbitr.py` — все инструменты
-- `config/settings.py` — все параметры из .env
-- `mcp_server/leviathan_mcp.py` — MCP для Cursor (stdio) или --http PORT
+## Порты на сервере
+```
+8200 — Leviathan Agent  ✅ работает
+8090 — ArbitrCockpit    ❓ проверить
+8005 — Orionyx
+8000 — AI Outreach
+8120 — VoiceStudio
+8110 — KinoVibe
+```
 
-**Инструменты агента:**
-bash_tool, read_file, write_file, list_dir, search_in_files,
-git_commit_push, http_get, http_post, claude_think,
-arbitr_lisa_estimate, arbitr_pipeline_status, arbitr_pipeline_start,
-arbitr_render_prompt, arbitr_submit_response, arbitr_run_auto_stage
+## Если ArbitrCockpit не запущен
+```bash
+# Найти и запустить
+find /opt -name "main.py" | xargs grep -l "arbitr\|cockpit" 2>/dev/null
+cd /opt/arbitr_cockpit  # или где он живёт
+source venv/bin/activate && uvicorn app.main:app --port 8090 &
+```
