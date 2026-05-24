@@ -215,6 +215,34 @@ async def http_post(url: str, body: dict, headers: dict | None = None) -> dict:
 # РЕЕСТР ИНСТРУМЕНТОВ для Gemini function calling
 # ══════════════════════════════════════════════════════════════
 
+
+# ══════════════════════════════════════════════════════════════
+# CLAUDE THINK — аналитика через Claude
+# ══════════════════════════════════════════════════════════════
+
+async def claude_think(
+    prompt:       str,
+    context:      str = "",
+    use_thinking: bool = False,
+) -> dict:
+    """
+    Вызывает Claude для аналитических, архитектурных задач и code review.
+    Работает в режимах GEMINI_THINK_CLAUDE и AUTO.
+    """
+    try:
+        from core_bridge.claude_adapter import get_claude_adapter
+        adapter = get_claude_adapter()
+        result  = await adapter.call_tool(
+            task_description = prompt,
+            context          = context,
+            use_thinking     = use_thinking,
+        )
+        return {"ok": True, "result": result, "provider": "claude"}
+    except Exception as e:
+        logger.error("claude_think: %s", e)
+        return {"ok": False, "error": str(e), "provider": "claude"}
+
+
 TOOLS_REGISTRY = {
     "bash_tool":         bash_tool,
     "read_file":         read_file,
@@ -222,6 +250,7 @@ TOOLS_REGISTRY = {
     "list_dir":          list_dir,
     "search_in_files":   search_in_files,
     "git_commit_push":   git_commit_push,
+    "claude_think":    claude_think,
     "http_get":          http_get,
     "http_post":         http_post,
 }
@@ -322,6 +351,19 @@ GEMINI_TOOLS = [
                 "body": {"type": "object", "description": "JSON тело запроса"},
             },
             "required": ["url", "body"],
+        },
+    },
+    {
+        "name": "claude_think",
+        "description": "Вызвать Claude для аналитики, архитектуры, code review, декомпозиции, сравнения подходов. Используй для задач где нужно думать, а не исполнять.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt":       {"type": "string",  "description": "Задача или вопрос для Claude"},
+                "context":      {"type": "string",  "description": "Доп. контекст: код, конфиг, логи"},
+                "use_thinking": {"type": "boolean", "description": "Extended thinking для сложных задач"},
+            },
+            "required": ["prompt"],
         },
     },
 ]

@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     PORT: int = 8200
 
     # ── Модель ──────────────────────────────────────────────────
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
 
 
     # ── Claude / Anthropic ──────────────────────────────────────

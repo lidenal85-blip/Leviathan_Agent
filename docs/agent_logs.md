@@ -172,3 +172,16 @@ DECOMPOSER → ARCHITECT → AUDITOR
   - nginx конфиг для /agent/ и /agent/ws (WebSocket)
   - MCP конфиг для Cursor IDE
   - Команды проверки
+
+
+### Обновление сессии 2026-05-24 (18:49) — Denis загрузил финальные файлы v3.1
+
+| Файл | Путь | Изменения |
+|------|------|-----------|
+| core.py | agent/core.py | v3.1 ModelRouter/ClaudeAdapter полная интеграция, gemini-2.5-flash, per-task model_mode |
+| settings.py | config/settings.py | GEMINI_K1-K14 (14 ключей индивидуально) |
+| tools.py | agent/tools.py | финальная версия с ArbitrCockpit внутри |
+| tg_bot.py | agent/tg_bot.py | улучшенный интерфейс |
+| leviathan_audit.py | leviathan_audit.py | **НОВЫЙ** — скрипт полного аудита и патча репо через GitHub API |
+| README.md | README.md | полная документация 11KB |
+| .env.example | .env.example | новая схема GEMINI_K1-K14 |

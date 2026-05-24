@@ -202,9 +202,14 @@ class AgentRunner:
         self._cancel_event = asyncio.Event()
         self._ws_clients: set = set()  # WebSocket клиенты
 
-    async def submit(self, prompt: str, mode: str = "NORMAL") -> "Task":
+    async def submit(
+        self,
+        prompt:     str,
+        mode:       str = "NORMAL",
+        model_mode: str | None = None,
+    ) -> "Task":
         from agent.core import Task
-        task = Task(prompt=prompt, mode=mode)
+        task = Task(prompt=prompt, mode=mode, model_mode=model_mode)
         await self.storage.save(task)
         await self._queue.put(task)
         return task
