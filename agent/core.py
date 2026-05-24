@@ -15,6 +15,12 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
+
+try:
+    from core_bridge.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
+    _CLAUDE_AVAILABLE = True
+except ImportError:
+    _CLAUDE_AVAILABLE = False
 from enum import Enum
 from typing import TYPE_CHECKING, Callable, Optional
 
@@ -160,6 +166,10 @@ class LeviathanAgent:
         self.on_step            = on_step
         self.on_approval_needed = on_approval_needed
         self.model_name         = model_name
+        # Claude как fallback если все Gemini ключи заблокированы
+        self._claude: ClaudeAdapter | None = claude_adapter
+        if _CLAUDE_AVAILABLE and claude_adapter is None:
+            self._claude = ClaudeAdapter()
 
     def _build_model(self, key: str) -> genai.GenerativeModel:
         genai.configure(api_key=key)
@@ -311,6 +321,42 @@ class LeviathanAgent:
         return task
 
     # ── Выполнение инструмента ───────────────────────────────────
+
+
+    async def _run_claude_fallback(self, task: "Task", messages: list) -> "Task":
+        """
+        Fallback на Claude когда Gemini недоступен.
+        Конвертируем историю сообщений в один промт и вызываем Claude.
+        """
+        logger.info("Agent: Claude fallback для задачи %s", task.id)
+
+        # Собираем контекст из истории
+        context_parts = []
+        for msg in messages:
+            role = msg.get("role", "")
+            parts = msg.get("parts", [])
+            if isinstance(parts, list):
+                for p in parts:
+                    if isinstance(p, str):
+                        context_parts.append(f"[{role}]: {p}")
+            elif isinstance(parts, str):
+                context_parts.append(f"[{role}]: {parts}")
+
+        full_prompt = "\n".join(context_parts) if context_parts else task.prompt
+
+        try:
+            from core_bridge.claude_adapter import ClaudeAdapter
+            response = await self._claude.call(full_prompt, use_thinking=False)
+            task.status  = TaskStatus.DONE
+            task.result  = f"[Claude fallback]\n{response.text}"
+            task.finished_at = __import__("time").time()
+            logger.info("Agent: Claude fallback успешен, %d chars", len(response.text))
+        except Exception as e:
+            task.status = TaskStatus.FAILED
+            task.error  = f"Claude fallback ошибка: {e}"
+            logger.error("Agent: %s", task.error)
+
+        return task
 
     async def _execute_tool(
         self,

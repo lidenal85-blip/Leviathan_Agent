@@ -155,3 +155,20 @@ DECOMPOSER → ARCHITECT → AUDITOR
 **Создано:** docs/sessions/2026-05-24_v3.1-integration.md  
 **Изменено:** agent/tools.py, agent/core.py, config/settings.py, .env.example, main.py, agent/model_router.py, core_bridge/claude_adapter.py  
 **TODO:** ПРИОРИТЕТ 2 (claude_adapter.py в KeyPool fallback), ПРИОРИТЕТ 4 (MCP в production), деплой на сервер
+
+
+### Продолжение сессии 2026-05-24 (18:47 UTC)
+
+**ПРИОРИТЕТ 2 — Claude fallback в KeyPool ✅**
+- `agent/core.py`: добавлены импорты ClaudeAdapter (try/except)
+- `LeviathanAgent.__init__`: параметр `claude_adapter`, авто-инициализация `self._claude`
+- Fallback логика: если Gemini → Exception (не 429) → `_run_claude_fallback()`
+- Новый метод `_run_claude_fallback()`: конвертирует историю в промт → вызывает Claude API/CLI
+
+**ПРИОРИТЕТ 4 — MCP в production ✅**
+- MCP сервер был готов (`mcp_server/leviathan_mcp.py`) — stdio JSON-RPC 2.0
+- `docs/DEPLOY_PRODUCTION.md`: полная инструкция деплоя на сервер 78.17.24.96
+  - .env шаблон с реальными токенами
+  - nginx конфиг для /agent/ и /agent/ws (WebSocket)
+  - MCP конфиг для Cursor IDE
+  - Команды проверки
