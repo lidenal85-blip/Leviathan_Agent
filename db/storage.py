@@ -1,19 +1,24 @@
 """
-db/storage.py — хранение задач в SQLite
+db/storage.py — хранение задач в SQLite.
+Расширение оригинала из agent_draft/storage.py:
+  + invocation_id на каждый шаг (SAD §7 рекомендация №1)
+  + немедленная запись после каждого шага (не только в конце задачи)
 """
 from __future__ import annotations
+
 import json
 import logging
-import aiosqlite
 from pathlib import Path
+
+import aiosqlite
 
 from agent.core import Task, TaskStatus, TaskStep
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("storage")
 
 
 class TaskStorage:
-    def __init__(self, db_path: str = "db/agent.db") -> None:
+    def __init__(self, db_path: str = "db/leviathan.db") -> None:
         self.db_path = db_path
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -21,26 +26,31 @@ class TaskStorage:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS tasks (
-                    id TEXT PRIMARY KEY,
-                    prompt TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    result TEXT DEFAULT '',
-                    error TEXT DEFAULT '',
-                    steps_json TEXT DEFAULT '[]',
-                    mode TEXT DEFAULT 'NORMAL',
-                    created_at REAL NOT NULL,
-                    finished_at REAL DEFAULT 0
+                    id           TEXT PRIMARY KEY,
+                    prompt       TEXT NOT NULL,
+                    status       TEXT NOT NULL,
+                    result       TEXT DEFAULT '',
+                    error        TEXT DEFAULT '',
+                    steps_json   TEXT DEFAULT '[]',
+                    mode         TEXT DEFAULT 'NORMAL',
+                    created_at   REAL NOT NULL,
+                    finished_at  REAL DEFAULT 0
                 )
             """)
             await db.commit()
-        logger.info("DB: инициализирована %s", self.db_path)
+        logger.info("TaskStorage: инициализирован (%s)", self.db_path)
 
     async def save(self, task: Task) -> None:
         steps_data = [
             {
-                "idx": s.idx, "tool": s.tool,
-                "args": s.args, "result": s.result,
-                "ts": s.ts, "duration": s.duration,
+                "idx":            s.idx,
+                "tool":           s.tool,
+                "args":           s.args,
+                "result":         s.result,
+                "invocation_id":  s.invocation_id,
+                "idempotency_key": s.idempotency_key,
+                "ts":             s.ts,
+                "duration":       s.duration,
             }
             for s in task.steps
         ]
@@ -91,9 +101,14 @@ class TaskStorage:
         steps_data = json.loads(row["steps_json"] or "[]")
         task.steps = [
             TaskStep(
-                idx=s["idx"], tool=s["tool"],
-                args=s["args"], result=s["result"],
-                ts=s["ts"], duration=s["duration"],
+                idx=s["idx"],
+                tool=s["tool"],
+                args=s["args"],
+                result=s.get("result"),
+                invocation_id=s.get("invocation_id", ""),
+                idempotency_key=s.get("idempotency_key", ""),
+                ts=s["ts"],
+                duration=s["duration"],
             )
             for s in steps_data
         ]
