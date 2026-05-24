@@ -7,7 +7,7 @@ Gemini function calling loop + Claude integration via ModelRouter.
   - Task.model_mode — per-task режим
   - CLAUDE_ONLY / CLAUDE_THINK_GEMINI: Claude планирует, Gemini исполняет
   - GEMINI_THINK_CLAUDE: claude_think доступен как Gemini-инструмент
-  - model_name по умолчанию → gemini-2.5-flash
+  - model_name по умолчанию → gemini-2.0-flash
 """
 from __future__ import annotations
 
@@ -146,7 +146,7 @@ class LeviathanAgent:
       registry       — OperationRegistry
       on_step        — callback (task, step)
       on_approval_needed — callback (task, cmd) → bool
-      model_name     — Gemini модель (по умолчанию gemini-2.5-flash)
+      model_name     — Gemini модель (по умолчанию gemini-2.0-flash)
       claude_adapter — ClaudeAdapter (опционально)
       model_router   — ModelRouter (опционально, по умолчанию GEMINI_ONLY)
     """
@@ -159,7 +159,7 @@ class LeviathanAgent:
         registry:            Optional["OperationRegistry"] = None,
         on_step:             Optional[Callable] = None,
         on_approval_needed:  Optional[Callable] = None,
-        model_name:          str = "gemini-2.5-flash",
+        model_name:          str = "gemini-2.0-flash",
         claude_adapter:      Optional["ClaudeAdapter"] = None,
         model_router:        Optional["ModelRouter"] = None,
     ) -> None:

@@ -2,10 +2,10 @@
   "mcpServers": {
     "leviathan": {
       "command": "python3",
-      "args": ["/opt/leviathan_agent/mcp_server/leviathan_mcp.py"],
+      "args": ["/opt/leviathan_engine/agent_service/mcp_server/leviathan_mcp.py"],
       "env": {
         "LEVIATHAN_URL": "http://localhost:8200",
-        "ARBITR_URL": "http://localhost:8090"
+        "ARBITR_URL":    "http://localhost:8090"
       }
     }
   }
