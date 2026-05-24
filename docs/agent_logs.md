@@ -185,3 +185,31 @@ DECOMPOSER → ARCHITECT → AUDITOR
 | leviathan_audit.py | leviathan_audit.py | **НОВЫЙ** — скрипт полного аудита и патча репо через GitHub API |
 | README.md | README.md | полная документация 11KB |
 | .env.example | .env.example | новая схема GEMINI_K1-K14 |
+
+
+### Продолжение сессии 2026-05-24 (18:56) — Анализ tar + фиксы main.py
+
+**Анализ Leviathan_Agent_tar.gz (локальное состояние Denis):**
+- Git: коммит `7450626` — отстаёт от GitHub на 1 коммит (нет leviathan_audit.py)
+- DB: `db/leviathan.db` 72KB — агент реально запускался локально
+- `.env`: 12 Gemini ключей (K1-K6, K9-K14), ANTHROPIC_API_KEY, TG_BOT_TOKEN заполнены
+- Найден дублирующийся `agent/key_pool.py` — нигде не импортируется
+
+**Исправления:**
+
+1. `main.py` — подключены model_router и claude_adapter в LeviathanAgent:
+   - Добавлен импорт `ClaudeAdapter` (try/except)
+   - Инициализация `_claude_adapter` из `ANTHROPIC_API_KEY` + `CLAUDE_MODEL`
+   - `LeviathanAgent(model_router=model_router, claude_adapter=_claude_adapter)`
+
+2. `agent/key_pool.py` — удалён как дублирующий `core_bridge/key_pool.py`
+   - Везде используется `core_bridge/key_pool.py` (с engine fallback)
+   - Нигде не импортировался — безопасно удалить
+
+**Для Denis: синхронизация сервера:**
+```bash
+cd /opt/leviathan_agent  # или где установлен
+git pull origin main
+systemctl restart leviathan_agent
+curl http://localhost:8200/health
+```

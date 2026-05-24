@@ -5,11 +5,10 @@ FastAPI + WebSocket дашборд + Telegram polling.
 Инициализация (порядок важен):
 1. Settings (из .env)
 2. KeyPool (core_bridge — engine или bundled)
-3. ClaudeAdapter (core_bridge/claude_adapter)
-4. ModelRouter (agent/model_router)
-5. ExecutionJournal + TaskStorage + OperationRegistry
-6. LeviathanAgent (получает все зависимости)
-7. AgentRunner + TelegramNotifier
+3. ModelRouter (agent/model_router)
+4. ExecutionJournal + TaskStorage + OperationRegistry
+5. LeviathanAgent (получает все зависимости)
+6. AgentRunner + TelegramNotifier
 """
 
 from __future__ import annotations
@@ -26,8 +25,12 @@ from agent.core import LeviathanAgent, Task
 from agent.model_router import ModelMode, ModelRouter, get_router
 from agent.tg_bot import AgentRunner, TelegramNotifier, setup_bot_handlers, router as tg_router
 from config.settings import get_settings
-from core_bridge.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig, get_claude_adapter
 from core_bridge.key_pool import build_key_pool
+try:
+    from core_bridge.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
+    _CLAUDE_OK = True
+except ImportError:
+    _CLAUDE_OK = False
 from db.journal import ExecutionJournal
 from db.storage import TaskStorage
 from execution.idempotency import OperationRegistry
@@ -46,26 +49,25 @@ storage       = TaskStorage(settings.db_path)
 journal       = ExecutionJournal(settings.db_path)
 registry      = OperationRegistry(settings.db_path)
 
-# Claude адаптер
-_claude_cfg   = ClaudeAdapterConfig(
-    api_key         = getattr(settings, "anthropic_api_key", ""),
-    model           = getattr(settings, "claude_model", "claude-sonnet-4-5"),
-    thinking_budget = getattr(settings, "claude_thinking_budget", 10_000),
-    timeout_sec     = getattr(settings, "tool_timeout_sec", 120),
-)
-claude_adapter = get_claude_adapter(_claude_cfg)
-
 # Роутер моделей
 model_router   = get_router(getattr(settings, "model_mode", "AUTO"))
 
+# Claude адаптер (fallback когда все Gemini ключи исчерпаны)
+_claude_adapter = None
+if _CLAUDE_OK and getattr(settings, "ANTHROPIC_API_KEY", ""):
+    _claude_adapter = ClaudeAdapter(ClaudeAdapterConfig(
+        model           = getattr(settings, "CLAUDE_MODEL", "claude-sonnet-4-5"),
+        thinking_budget = getattr(settings, "CLAUDE_THINKING_BUDGET", 10_000),
+    ))
+
 agent = LeviathanAgent(
-    key_pool       = key_pool,
-    max_iterations = settings.MAX_ITERATIONS,
-    journal        = journal,
-    registry       = registry,
-    model_name     = settings.GEMINI_MODEL,
-    claude_adapter = claude_adapter,
-    model_router   = model_router,
+    key_pool        = key_pool,
+    max_iterations  = settings.MAX_ITERATIONS,
+    journal         = journal,
+    registry        = registry,
+    model_name      = settings.GEMINI_MODEL,
+    model_router    = model_router,
+    claude_adapter  = _claude_adapter,
 )
 
 runner: AgentRunner | None = None
@@ -158,7 +160,7 @@ async def health():
 async def create_task(req: TaskRequest):
     if not runner:
         raise HTTPException(503, "Runner не инициализирован")
-    task = await runner.submit(req.prompt, req.mode, model_mode=req.model_mode)
+    task = await runner.submit(req.prompt, req.mode)
     return {"task_id": task.id, "status": task.status.value}
 
 
@@ -403,7 +405,6 @@ function setModelMode(btn){
   currentModelMode = btn.dataset.mode;
   document.querySelectorAll('.btn-model').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  // Сохраняем на сервере
   fetch('/api/model-mode', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -443,7 +444,6 @@ async function loadStatus(){
   document.getElementById('model-mode-label').textContent = d.model_mode || 'AUTO';
   const avail = (d.key_pool||[]).filter(k=>k.available!==false).length;
   document.getElementById('keys-ok').textContent = avail+'/'+(d.key_pool||[]).length;
-  // Синхронизируем кнопки
   document.querySelectorAll('.btn-model').forEach(b=>{
     b.classList.toggle('active', b.dataset.mode === d.model_mode);
   });
