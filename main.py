@@ -150,6 +150,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="LEVIATHAN AGENT", version="3.1.0", lifespan=lifespan)
 
+# OpenAI-compatible /v1 API (для Cline)
+from api.openai_compat import oai_router  # noqa: E402
+app.include_router(oai_router)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # REST API
