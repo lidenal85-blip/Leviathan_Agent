@@ -66,6 +66,15 @@ class Settings(BaseSettings):
     # ── Model Router ────────────────────────────────────────────
     MODEL_MODE: str = "AUTO"  # AUTO|GEMINI_ONLY|CLAUDE_ONLY|GEMINI_THINK_CLAUDE|CLAUDE_THINK_GEMINI
 
+    # ── Claude Multi-Account Manager ────────────────────────────
+    CLAUDE_CRYPTO_KEY_FILE:       str = "/etc/leviathan/crypto.key"
+    CLAUDE_ACCOUNTS_DB:           str = "db/claude_accounts.db"
+    CLAUDE_SESSIONS_DB:           str = "db/claude_sessions.db"
+    CLAUDE_HEALTH_INTERVAL:       int = 300
+    CLAUDE_MAX_CONCURRENT_HEALTH: int = 3
+    CLAUDE_MIGRATE_LAST_N:        int = 20
+    DASHBOARD_PASSWORD:           str = "changeme"
+
     # ── ArbitrCockpit ───────────────────────────────────────────
     ARBITR_URL: str = "http://localhost:8090"
 
