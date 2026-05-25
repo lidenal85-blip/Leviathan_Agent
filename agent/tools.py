@@ -375,3 +375,17 @@ try:
     register_arbitr_tools(TOOLS_REGISTRY, GEMINI_TOOLS)
 except ImportError:
     pass  # ArbitrCockpit не установлен — работаем без него
+
+# НОВЫЙ КОД: Инструменты доставки
+from agent.tools_delivery import register_delivery_tools
+register_delivery_tools(TOOLS_REGISTRY, GEMINI_TOOLS)
+
+
+
+# ── Extra tools (v3.2) ────────────────────────────────────────
+try:
+    from agent.tools_extra import register_extra_tools
+    register_extra_tools(TOOLS_REGISTRY, GEMINI_TOOLS)
+except ImportError as _e:
+    import logging
+    logging.getLogger("tools").warning("tools_extra not available: %s", _e)

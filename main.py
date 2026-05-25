@@ -35,6 +35,10 @@ from db.journal import ExecutionJournal
 from db.storage import TaskStorage
 from execution.idempotency import OperationRegistry
 
+# НОВЫЕ ИМПОРТЫ
+from db.knowledge_base import KnowledgeBase
+from agent.tools_delivery import register_delivery_tools, inject_delivery_deps
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -71,7 +75,7 @@ agent = LeviathanAgent(
 )
 
 runner: AgentRunner | None = None
-
+kb: KnowledgeBase | None = None # Объявляем kb глобально
 
 # ── NullNotifier — без mock ────────────────────────────────────────────────────
 
@@ -88,11 +92,15 @@ class NullNotifier:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global runner
+    global runner, kb
 
     await storage.init()
     await journal.init()
     await registry.init()
+
+    # НОВЫЙ КОД: Инициализация KnowledgeBase
+    kb = KnowledgeBase(settings.db_path.replace(".db", "_kb.db"))
+    await kb.init()
 
     async def cleanup_loop():
         while True:
@@ -112,6 +120,21 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(runner.run_loop())
         asyncio.create_task(dp.start_polling(bot, handle_signals=False))
         logger.info("Telegram бот запущен (chat_id=%s)", settings.TG_ADMIN_CHAT_ID)
+        # НОВЫЙ КОД: Инъекция зависимостей доставки
+        inject_delivery_deps(bot, settings.TG_ADMIN_CHAT_ID, kb)
+    # Extra tools + token stats (v3.2)
+    try:
+        from db.token_stats import init_token_stats
+        init_token_stats(str(settings.db_path))
+    except Exception as _e:
+        logger.warning("token_stats init failed: %s", _e)
+
+    try:
+        from agent.tools_extra import inject_extra_deps
+        inject_extra_deps(bot, settings.TG_ADMIN_CHAT_ID, kb, str(settings.db_path))
+    except Exception as _e:
+        logger.warning("tools_extra inject failed: %s", _e)
+
     else:
         logger.warning("TG не настроен — работаем без бота")
         notifier = NullNotifier()
@@ -466,13 +489,13 @@ async function showTask(id){
   const t = await r.json();
   const steps = t.steps.map(s=>
     ` ${s.ok?'✅':'❌'} [${s.provider||'gemini'}] ${s.tool} [${s.duration.toFixed(1)}s]${s.idempotency_key?' 🔑'+s.idempotency_key:''}`
-  ).join('\\n');
+  ).join('\n');
   const llm = t.llm_stats;
   alert(
-    `Задача #${t.id} [${t.status}]\\n` +
-    `Режим: ${t.mode} | Модель: ${t.model_mode||'AUTO'}\\n` +
-    `Шагов: ${t.steps.length} | LLM: ${llm.calls||0} вызовов | Tokens: ${(llm.total_input||0)+(llm.total_output||0)}\\n\\n` +
-    `Шаги:\\n${steps}\\n\\nРезультат:\\n${t.result||t.error||'—'}`
+    `Задача #${t.id} [${t.status}]\n` +
+    `Режим: ${t.mode} | Модель: ${t.model_mode||'AUTO'}\n` +
+    `Шагов: ${t.steps.length} | LLM: ${llm.calls||0} вызовов | Tokens: ${(llm.total_input||0)+(llm.total_output||0)}\n\n` +
+    `Шаги:\n${steps}\n\nРезультат:\n${t.result||t.error||'—'}`
   );
 }
 
