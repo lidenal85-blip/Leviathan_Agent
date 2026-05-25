@@ -328,9 +328,20 @@ class LeviathanAgent:
                         ))
                     continue
 
+                if "403" in err_str or "API_KEY_INVALID" in err_str or "denied" in err_str.lower():
+                    self.key_pool.mark_dead(key)
+                    logger.warning("Agent: 403 ключ мёртв ...%s, пробуем следующий", key[-6:])
+                    continue
+
                 task.status = TaskStatus.FAILED
                 task.error  = f"Gemini ошибка: {err_str}"
                 logger.error("Agent: %s", task.error)
+
+                # Groq fallback при полном падении Gemini
+                groq_result = await self._groq_fallback(task, messages)
+                if groq_result:
+                    return groq_result
+
                 await self._close_journal(task)
                 return task
 
@@ -576,6 +587,57 @@ class LeviathanAgent:
         )
         await self.journal.start_step(step)
         await self.journal.finish_step(step)
+
+    async def _groq_fallback(self, task: Task, messages: list) -> "Task | None":
+        """
+        Groq fallback — используется когда все Gemini ключи мертвы.
+        Простой текстовый ответ без function calling.
+        """
+        from config.settings import get_settings
+        settings = get_settings()
+        groq_keys = [
+            getattr(settings, f"GROQ_K{i}", "")
+            for i in range(1, 6)
+            if getattr(settings, f"GROQ_K{i}", "").strip()
+        ]
+        if not groq_keys:
+            logger.warning("Groq fallback: нет ключей в .env (GROQ_K1..K5)")
+            return None
+        try:
+            import groq as groq_sdk
+        except ImportError:
+            logger.warning("Groq fallback: пакет groq не установлен")
+            return None
+
+        for gkey in groq_keys:
+            try:
+                client   = groq_sdk.AsyncGroq(api_key=gkey)
+                history  = [
+                    {"role": m["role"], "content": str(m["parts"])}
+                    for m in messages
+                    if m.get("role") in ("user", "assistant")
+                ]
+                if not history:
+                    history = [{"role": "user", "content": task.prompt}]
+
+                resp = await client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=history,
+                    max_tokens=2048,
+                )
+                answer = resp.choices[0].message.content or ""
+                logger.info("Groq fallback: успешно (...%s), %d chars", gkey[-6:], len(answer))
+                task.status      = TaskStatus.DONE
+                task.result      = f"[Groq llama-3.3-70b]\n{answer}"
+                task.finished_at = time.time()
+                await self._close_journal(task)
+                return task
+            except Exception as e:
+                logger.warning("Groq fallback ключ ...%s: %s", gkey[-6:], e)
+                continue
+
+        logger.error("Groq fallback: все ключи исчерпаны")
+        return None
 
     async def _close_journal(self, task: Task) -> None:
         if not self.journal:

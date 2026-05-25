@@ -93,6 +93,17 @@ class GeminiKeyPool:
                 )
                 return
 
+    def mark_dead(self, key: str) -> None:
+        """Блокируем ключ на 24 часа при 403/API_KEY_INVALID."""
+        for state in self._keys:
+            if state.key == key:
+                state.block(86400)
+                logger.error(
+                    "GeminiKeyPool: ключ ...%s МЁРТВ (403), блок на 24ч",
+                    key[-6:],
+                )
+                return
+
     def mark_ok(self, key: str) -> None:
         """Сбрасываем счётчик ошибок после успеха."""
         for state in self._keys:
