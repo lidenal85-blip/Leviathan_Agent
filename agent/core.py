@@ -388,7 +388,7 @@ class LeviathanAgent:
                         "function_response": {
                             "name": name,
                             "response": {
-                                "result": json.dumps(result, ensure_ascii=False)
+                                "result": json.dumps(result, ensure_ascii=False, default=str)
                             },
                         }
                     }

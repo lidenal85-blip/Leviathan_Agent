@@ -27,6 +27,13 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+
+def _safe_json(data) -> dict | list:
+    """Конвертируем в JSON-safe структуру (default=str для нестандартных типов)."""
+    import json
+    return json.loads(json.dumps(data, default=str, ensure_ascii=False))
+
+
 ARBITR_URL = os.environ.get("ARBITR_URL", "http://localhost:8090")
 ARBITR_TIMEOUT = int(os.environ.get("ARBITR_TIMEOUT", "30"))
 
@@ -134,7 +141,7 @@ async def arbitr_pipeline_status(order_id: str) -> dict:
             r = await client.get(f"{ARBITR_URL}/api/orders/{order_id}/pipeline")
             if not r.is_success:
                 return {"ok": False, "error": f"HTTP {r.status_code}: {r.text[:200]}"}
-            data = r.json()
+            data = _safe_json(r.json())
             return {"ok": True, **data}
     except httpx.ConnectError:
         return {
@@ -172,7 +179,7 @@ async def arbitr_pipeline_start(
             )
             if not r.is_success:
                 return {"ok": False, "error": f"HTTP {r.status_code}: {r.text[:200]}"}
-            data = r.json()
+            data = _safe_json(r.json())
             return {"ok": True, **data}
     except httpx.ConnectError:
         return {"ok": False, "error": f"Arbitr Cockpit недоступен на {ARBITR_URL}"}
@@ -194,7 +201,7 @@ async def arbitr_render_prompt(order_id: str, run_id: int) -> dict:
             )
             if not r.is_success:
                 return {"ok": False, "error": f"HTTP {r.status_code}"}
-            data = r.json()
+            data = _safe_json(r.json())
             return {
                 "ok": True,
                 "stage": data.get("stage"),
@@ -225,7 +232,7 @@ async def arbitr_submit_response(
             )
             if not r.is_success:
                 return {"ok": False, "error": f"HTTP {r.status_code}: {r.text[:200]}"}
-            return {"ok": True, **r.json()}
+            return {"ok": True, **_safe_json(r.json())}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -244,7 +251,7 @@ async def arbitr_run_auto_stage(order_id: str, run_id: int) -> dict:
             )
             if not r.is_success:
                 return {"ok": False, "error": f"HTTP {r.status_code}: {r.text[:200]}"}
-            return {"ok": True, **r.json()}
+            return {"ok": True, **_safe_json(r.json())}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
