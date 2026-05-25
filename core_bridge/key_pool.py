@@ -158,6 +158,21 @@ class _CoreKeyPoolAdapter:
                     self._pool.report(e, 429)
                     return
 
+    def mark_dead(self, key: str) -> None:
+        """Блокируем ключ на 24ч при 403."""
+        import time as _time
+        for entries in self._pool._entries.values():
+            for e in entries:
+                if e.value == key:
+                    try:
+                        self._pool.report(e, 403)
+                    except Exception:
+                        e.blocked_until = _time.time() + 86400
+                    logger.error(
+                        "CoreKeyPoolAdapter: ключ ...%s МЁРТВ (403)", key[-6:]
+                    )
+                    return
+
     def mark_ok(self, key: str) -> None:
         for entries in self._pool._entries.values():
             for e in entries:
