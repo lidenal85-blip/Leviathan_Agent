@@ -120,21 +120,17 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(runner.run_loop())
         asyncio.create_task(dp.start_polling(bot, handle_signals=False))
         logger.info("Telegram бот запущен (chat_id=%s)", settings.TG_ADMIN_CHAT_ID)
-        # НОВЫЙ КОД: Инъекция зависимостей доставки
         inject_delivery_deps(bot, settings.TG_ADMIN_CHAT_ID, kb)
-    # Extra tools + token stats (v3.2)
-    try:
-        from db.token_stats import init_token_stats
-        init_token_stats(str(settings.db_path))
-    except Exception as _e:
-        logger.warning("token_stats init failed: %s", _e)
-
-    try:
-        from agent.tools_extra import inject_extra_deps
-        inject_extra_deps(bot, settings.TG_ADMIN_CHAT_ID, kb, str(settings.db_path))
-    except Exception as _e:
-        logger.warning("tools_extra inject failed: %s", _e)
-
+        try:
+            from db.token_stats import init_token_stats
+            init_token_stats(str(settings.db_path))
+        except Exception as _e:
+            logger.warning("token_stats init failed: %s", _e)
+        try:
+            from agent.tools_extra import inject_extra_deps
+            inject_extra_deps(bot, settings.TG_ADMIN_CHAT_ID, kb, str(settings.db_path))
+        except Exception as _e:
+            logger.warning("tools_extra inject failed: %s", _e)
     else:
         logger.warning("TG не настроен — работаем без бота")
         notifier = NullNotifier()
