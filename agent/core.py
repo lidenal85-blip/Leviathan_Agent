@@ -31,6 +31,19 @@ if TYPE_CHECKING:
     from execution.result_envelope import ResultEnvelope
 
 from agent.tools import TOOLS_REGISTRY, GEMINI_TOOLS, is_dangerous
+
+
+def _proto_to_python(obj):
+    """
+    Рекурсивно конвертирует proto/MapComposite объекты в plain Python.
+    Нужно т.к. google-generativeai возвращает аргументы function_call
+    как proto.marshal.collections.maps.MapComposite.
+    """
+    if hasattr(obj, "items"):          # dict-like (MapComposite, dict)
+        return {k: _proto_to_python(v) for k, v in obj.items()}
+    if hasattr(obj, "__iter__") and not isinstance(obj, (str, bytes)):
+        return [_proto_to_python(i) for i in obj]
+    return obj                          # str, int, float, bool, None
 from execution.result_envelope import (
     MUTABLE_TOOLS, ResultEnvelope, ResultStatus, ErrorCode
 )
@@ -366,7 +379,7 @@ class LeviathanAgent:
                     has_tool_call = True
                     fc          = part.function_call
                     tool_name   = fc.name
-                    tool_args   = dict(fc.args) if fc.args else {}
+                    tool_args   = _proto_to_python(fc.args) if fc.args else {}
 
                     logger.info(
                         "Agent [%d]: %s(%s)",
