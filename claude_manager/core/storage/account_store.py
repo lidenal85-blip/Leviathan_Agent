@@ -63,22 +63,27 @@ class AccountStore:
         _log.result("AccountStore готов")
         _log.next("AccountLifecycleManager запускает health checks")
 
-    async def add(self, email: str, password: str) -> str:
+    async def add(self, email: str, session_key: str, password: str = "") -> str:
+        """Добавить аккаунт. session_key берётся из браузера (cookies → sessionKey).
+        password опциональный — зарезервирован на будущее.
+        """
         _log.task(f"добавление аккаунта {email}")
         account_id = str(uuid.uuid4())[:8]
-        enc_pw = self._crypto.encrypt(password)
+        enc_pw  = self._crypto.encrypt(password) if password else ""
+        enc_key = self._crypto.encrypt(session_key) if session_key else ""
+        status  = AccountStatus.ACTIVE if session_key else "NEEDS_KEY"
         now = time.time()
-        _log.step(f"запись в БД, account_id={account_id}")
+        _log.step(f"запись в БД, account_id={account_id}, status={status}")
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """INSERT INTO claude_accounts
                    (account_id,email,enc_password,enc_session_key,status,created_at,updated_at)
                    VALUES (?,?,?,?,?,?,?)""",
-                (account_id, email, enc_pw, "", AccountStatus.ACTIVE, now, now),
+                (account_id, email, enc_pw, enc_key, status, now, now),
             )
             await db.commit()
-        _log.result(f"аккаунт {email} добавлен id={account_id}")
-        _log.next("первый health check через AccountLifecycleManager")
+        _log.result(f"аккаунт {email} добавлен id={account_id} status={status}")
+        _log.next("health check запустится на следующем цикле scheduler-а")
         return account_id
 
     async def get(self, account_id: str) -> Optional[Account]:

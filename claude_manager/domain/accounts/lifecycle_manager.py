@@ -141,17 +141,27 @@ class AccountLifecycleManager:
 
     # ── публичный API ───────────────────────────────────────────────
 
-    async def add_account(self, email: str, password: str) -> str:
-        """Добавить аккаунт. Health check запустится scheduler-ом по расписанию.
-        Немедленную проверку не делаем: новый аккаунт без session_key всё равно
-        пойдёт в AUTH_FAILED и перебьёт счётчики. Пусть пользователь сначала
-        задаст session_key через update_session_key, тогда scheduler подхватит.
+    async def add_account(self, email: str, session_key: str) -> str:
+        """Добавить аккаунт. session_key получается вручную из браузера:
+        DevTools → Application → Cookies → claude.ai → sessionKey
         """
         _log.task(f"add_account: {email}")
-        account_id = await self._store.add(email, password)
+        account_id = await self._store.add(email, session_key)
         _log.result(f"add_account: {email} id={account_id}")
         _log.next("scheduler запустит health check на следующем цикле")
         return account_id
+
+    async def update_session_key(self, account_id: str, session_key: str) -> bool:
+        """Обновить session_key вручную (если старый истёк)."""
+        _log.task(f"update_session_key: acc={account_id}")
+        acc = await self._store.get(account_id)
+        if not acc:
+            _log.warn(f"update_session_key: acc={account_id} не найден")
+            return False
+        await self._store.update_session_key(account_id, session_key)
+        await self._store.update_status(account_id, AccountStatus.ACTIVE)
+        _log.result(f"update_session_key: acc={account_id} обновлён, статус → ACTIVE")
+        return True
 
     async def remove_account(self, account_id: str) -> bool:
         _log.task(f"remove_account: {account_id}")
@@ -440,51 +450,17 @@ class AccountLifecycleManager:
         self, acc: Account
     ) -> Optional[str]:
         """
-        Реальный reverse-eng автологин.
-        MVP: POST /api/auth/login с email+password, получаем sessionKey из Set-Cookie.
-        Полная реализация — в ClaudeAdapter после reverse-eng анализа.
+        Auto-rotate невозможен: claude.ai требует Cloudflare challenge.
+        Пользователь должен обновить sessionKey вручную:
+
+        1. Открой claude.ai, войди в аккаунт
+        2. DevTools (F12) → Application → Cookies → claude.ai
+        3. Найди sessionKey, скопируй значение
+        4. /claude_key {account_id} {session_key}
         """
-        _log.step(f"_do_rotate: POST /api/auth/login для {acc.email}")
-        try:
-            async with httpx.AsyncClient(
-                timeout=HTTP_TIMEOUT, follow_redirects=True
-            ) as client:
-                resp = await client.post(
-                    f"{CLAUDE_BASE}/api/auth/login",
-                    json={"email": acc.email, "password": acc.password},
-                    headers={
-                        "user-agent": "Mozilla/5.0 (compatible; LeviathanAgent)",
-                        "content-type": "application/json",
-                    },
-                )
-
-            _log.step(f"_do_rotate: {acc.email} → HTTP {resp.status_code}")
-
-            # ищем sessionKey в Set-Cookie
-            cookie_header = resp.headers.get("set-cookie", "")
-            for part in cookie_header.split(";"):
-                part = part.strip()
-                if part.startswith("sessionKey="):
-                    new_key = part.split("=", 1)[1].strip()
-                    if new_key:
-                        return new_key
-
-            # ищем в JSON-ответе
-            try:
-                data = resp.json()
-                return (
-                    data.get("session_key")
-                    or data.get("sessionKey")
-                    or data.get("token")
-                )
-            except Exception:
-                pass
-
-            _log.warn(
-                f"_do_rotate: {acc.email} — sessionKey не найден в ответе"
-            )
-            return None
-
-        except Exception as exc:
-            _log.error(f"_do_rotate: {acc.email} — HTTP ошибка: {exc}")
-            return None
+        _log.warn(
+            f"_do_rotate: {acc.email} — авто-ротация недоступна (Cloudflare)."
+            f" Обновите вручную: /claude_key {acc.account_id} <key>"
+        )
+        return None
+        

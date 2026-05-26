@@ -291,6 +291,79 @@ async def pool_status():
     return {"stats": key_pool.stats() if hasattr(key_pool, "stats") else []}
 
 
+# ════════════════════════════════════════════════════════════════════════════════
+# Claude Multi-Account API
+# ════════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/claude/accounts")
+async def claude_add_account(body: dict):
+    """Добавить Claude аккаунт.
+    Body: {"email": "...", "session_key": "..."}
+    session_key — из DevTools → Application → Cookies → claude.ai → sessionKey
+    """
+    email = (body.get("email") or "").strip()
+    session_key = (body.get("session_key") or "").strip()
+    if not email or not session_key:
+        raise HTTPException(400, "Нужны email и session_key")
+    try:
+        from claude_manager.core.storage.account_store import AccountStore as _AS
+        _store = _AS(getattr(settings, "CLAUDE_ACCOUNTS_DB", "db/claude_accounts.db"))
+        await _store.init()
+        account_id = await _store.add(email, session_key)
+        return {"ok": True, "account_id": account_id, "email": email}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.get("/api/claude/accounts")
+async def claude_list_accounts():
+    """Список аккаунтов (email + status, без секретов)."""
+    try:
+        from claude_manager.core.storage.account_store import AccountStore as _AS
+        _store = _AS(getattr(settings, "CLAUDE_ACCOUNTS_DB", "db/claude_accounts.db"))
+        await _store.init()
+        accounts = await _store.list_all()
+        return {"accounts": [
+            {"account_id": a.account_id, "email": a.email,
+             "status": a.status.value if hasattr(a.status, "value") else a.status,
+             "rate_limit_remaining": a.rate_limit_remaining}
+            for a in accounts
+        ]}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.post("/api/claude/accounts/{account_id}/key")
+async def claude_update_key(account_id: str, body: dict):
+    """Обновить sessionKey вручную (session истёк).
+    Body: {"session_key": "..."}
+    """
+    session_key = (body.get("session_key") or "").strip()
+    if not session_key:
+        raise HTTPException(400, "Нужен session_key")
+    try:
+        from claude_manager.core.storage.account_store import AccountStore as _AS
+        _store = _AS(getattr(settings, "CLAUDE_ACCOUNTS_DB", "db/claude_accounts.db"))
+        await _store.init()
+        await _store.update_session_key(account_id, session_key)
+        await _store.update_status(account_id, "ACTIVE")
+        return {"ok": True, "account_id": account_id}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.delete("/api/claude/accounts/{account_id}")
+async def claude_delete_account(account_id: str):
+    try:
+        from claude_manager.core.storage.account_store import AccountStore as _AS
+        _store = _AS(getattr(settings, "CLAUDE_ACCOUNTS_DB", "db/claude_accounts.db"))
+        await _store.init()
+        ok = await _store.remove(account_id)
+        return {"ok": ok}
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
 @app.get("/api/model-mode")
 async def get_model_mode():
     return {"model_mode": getattr(settings, "model_mode", "AUTO")}

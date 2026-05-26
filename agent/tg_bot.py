@@ -166,6 +166,78 @@ def setup_bot_handlers(
             lines.append(f"{ok} {step.tool}({str(step.args)[:40]}) [{step.duration:.1f}s]")
         await msg.answer("\n".join(lines))
 
+    # ── Claude Multi-Account ────────────────────────────────────────────────────────────
+
+    @router.message(Command("claude_add"))
+    async def cmd_claude_add(msg: Message) -> None:
+        """/claude_add email session_key
+
+        session_key — из DevTools → Application → Cookies → claude.ai → sessionKey
+        """
+        parts = (msg.text or "").split(maxsplit=2)
+        if len(parts) < 3:
+            await msg.answer(
+                "❌ Формат: /claude_add email session_key\n\n"
+                "Как получить sessionKey:\n"
+                "1. Открой claude.ai, войди в аккаунт\n"
+                "2. F12 → Application → Cookies → claude.ai\n"
+                "3. Найди sessionKey, скопируй"
+            )
+            return
+        email, session_key = parts[1], parts[2]
+        try:
+            from claude_manager.core.storage.account_store import AccountStore as _AS
+            _store = _AS(getattr(__import__("config.settings", fromlist=["settings"]), "CLAUDE_ACCOUNTS_DB", "db/claude_accounts.db"))
+            await _store.init()
+            account_id = await _store.add(email, session_key)
+            await msg.answer(f"✅ Аккаунт добавлен\nid: {account_id}\nemail: {email}")
+        except Exception as exc:
+            await msg.answer(f"❌ Ошибка: {exc}")
+
+    @router.message(Command("claude_key"))
+    async def cmd_claude_key(msg: Message) -> None:
+        """/claude_key account_id session_key — обновить истёкший sessionKey"""
+        parts = (msg.text or "").split(maxsplit=2)
+        if len(parts) < 3:
+            await msg.answer("❌ Формат: /claude_key account_id session_key")
+            return
+        account_id, session_key = parts[1], parts[2]
+        try:
+            from claude_manager.core.storage.account_store import AccountStore as _AS
+            import importlib
+            cfg = importlib.import_module("config.settings")
+            _store = _AS(getattr(cfg, "CLAUDE_ACCOUNTS_DB", "db/claude_accounts.db"))
+            await _store.init()
+            await _store.update_session_key(account_id, session_key)
+            await _store.update_status(account_id, "ACTIVE")
+            await msg.answer(f"✅ sessionKey обновлён, статус → ACTIVE\nacc: {account_id}")
+        except Exception as exc:
+            await msg.answer(f"❌ Ошибка: {exc}")
+
+    @router.message(Command("claude_status"))
+    async def cmd_claude_status(msg: Message) -> None:
+        """/claude_status — показать все аккаунты Claude"""
+        try:
+            from claude_manager.core.storage.account_store import AccountStore as _AS
+            import importlib
+            cfg = importlib.import_module("config.settings")
+            _store = _AS(getattr(cfg, "CLAUDE_ACCOUNTS_DB", "db/claude_accounts.db"))
+            await _store.init()
+            accounts = await _store.list_all()
+            if not accounts:
+                await msg.answer("💭 Аккаунтов нет. Добавь: /claude_add email session_key")
+                return
+            icons = {"ACTIVE": "✅", "AUTH_FAILED": "❌", "DEAD": "💣",
+                     "DEGRADED": "⚠️", "NEEDS_KEY": "🔑", "RATE_LIMITED": "⏳"}
+            lines = ["📄 Claude аккаунты:"]
+            for a in accounts:
+                st = a.status.value if hasattr(a.status, "value") else str(a.status)
+                icon = icons.get(st, "❓")
+                lines.append(f"{icon} {a.email[:20]}... | {st} | id:{a.account_id}")
+            await msg.answer("\n".join(lines))
+        except Exception as exc:
+            await msg.answer(f"❌ Ошибка: {exc}")
+
     @router.callback_query(F.data.startswith("approve:"))
     async def cb_approve(cb: CallbackQuery) -> None:
         task_id = cb.data.split(":")[1]
