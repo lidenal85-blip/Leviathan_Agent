@@ -1,69 +1,54 @@
-# Передаточный промт — следующая сессия
+# Передаточный промт — Level 6
 
-Скопируй и отправь в начале новой сессии:
+Отправь в начале новой сессии:
 
 ---
 
 ```
-Репо: github.com/lidenal85-blip/Leviathan_Agent (f4704f9)
-      github.com/lidenal85-blip/ArbitrCockpit (37c0a74)
-Сервер: root@78.17.24.96 | @Levi_Engi_bot
+Роль: developer_v2 (ты — Senior Developer, реализуешь по готовым спецификациям)
+Репо: github.com/lidenal85-blip/Leviathan_Agent
+Ветка: feature/claude-multi-account
+Последний коммит: f932ca0
+Сервер: root@78.17.24.96
+Путь: /opt/leviathan_engine/agent_service/
 
-Прочитай docs/sessions/2026-05-25_deploy-and-arbitr.md
+CLAUDE MANAGER — что уже есть (не трогать):
+  ✅ claude_manager/logger.py              — StepLogger
+  ✅ claude_manager/core/crypto/           — CryptoKeyManager
+  ✅ claude_manager/core/storage/account_store.py
+  ✅ claude_manager/core/storage/advisory_lock.py
+  ✅ claude_manager/domain/accounts/lifecycle_manager.py
+  ✅ claude_manager/domain/sessions/context_manager.py
+  ✅ claude_manager/providers/claude/adapter.py
+  ✅ claude_manager/providers/pool.py      — LLMProviderPool + AllAccountsRateLimited
 
-СТАТУС (всё работает):
-✅ Leviathan Agent v3.1  — порт 8200, 14 Gemini + 5 Groq + Mistral
-✅ ArbitrCockpit v0.5    — порт 8095, leviathanstory.ru/arbitr/
-✅ Groq fallback         — mark_dead + _groq_fallback задеплоены
+TEKUЩАЯ ЗАДАЧА — Level 6, порядок:
+  1. claude_manager/core/storage/project_store.py
+  2. claude_manager/domain/projects/task_planner.py
+  3. claude_manager/domain/projects/project_executor.py
+  4. claude_manager/domain/projects/resume_manager.py
+  5. claude_manager/domain/projects/project_orchestrator.py
+  6. agent/tg_bot.py — добавить команды
 
-ЗАДАЧИ (приоритет):
-1. 🔴 Тест ArbitrCockpit pipeline через агента:
-   Отправь в @Levi_Engi_bot:
-   "/task Зайди на http://localhost:8095/api/orders и покажи список заказов"
+КЛЮЧЕВОЕ (прочтить перед началом):
+  - docs/LEVEL6_TZ.md — полное ТЗ
+  - claude_manager/providers/pool.py — AllAccountsRateLimited(next_reset_ts),
+    pool._earliest_reset_ts(), pool.complete(), pool.migrate_session()
+  - claude_manager/logger.py — StepLogger обязателен во всех новых модулях
+  - docs/sessions/2026-05-26_claude-manager-level6.md — полный контекст
 
-2. 🔴 Тест Groq fallback:
-   ssh levi "curl -s http://localhost:8200/health" — убедись что groq есть
-   Потом заблокируй все Gemini ключи временно и отправь задачу
+АРХИТЕКТУРНЫЕ ПРАВИЛА Level 6:
+  - ВСЕ модули вызывают LLMProviderPool.complete(), не ClaudeAdapter напрямую
+  - ProjectScheduler из ТЗ НЕ делать — избыточный слой, логика в Orchestrator
+  - TG-команды: префикс /p... (не путать с /status Gemini-задач):
+    /project, /pstatus, /ppause, /presume, /projects, /pqueue, /checkpoints
+  - Файлы по архитектуре в claude_manager/domain/projects/, НЕ в core_bridge/
+  - Логирование обязательно через StepLogger во всех модулях:
+    log.task() → начало (log + TG)
+    log.step() → шаг (только log)
+    log.result() → итог (log + TG)
+    log.error() → ошибка (log + TG-алерт)
 
-3. 🟡 Выяснить причину 403 на Gemini ключах:
-   ssh levi "cd /opt/leviathan_engine/agent_service && \
-     python3 -c \"
-   import urllib.request, json
-   key = open('.env').read()
-   import re; keys = re.findall(r'GEMINI_K\d+=(.+)', key)
-   k = keys[0].strip()
-   url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={k}'
-   data = json.dumps({'contents':[{'parts':[{'text':'ping'}]}]}).encode()
-   req = urllib.request.Request(url, data=data, headers={'Content-Type':'application/json'})
-   try:
-       r = urllib.request.urlopen(req, timeout=10)
-       print('OK:', r.status)
-   except Exception as e:
-       print('ERROR:', e)
-   \""
-
-4. 🟢 Удалить старый репо:
-   ssh levi "rm -rf /root/Leviathan_Agent/"
-
-5. 🟢 React дашборд (вынести из main.py)
-```
-
----
-
-## Полезные команды
-
-```bash
-# Статус всего
-ssh levi "systemctl status leviathan_agent arbitr --no-pager | grep Active"
-
-# Тест агента
-ssh levi "curl -s -X POST http://localhost:8200/api/tasks \
-  -H 'Content-Type: application/json' \
-  -d '{\"prompt\": \"покажи uptime\", \"mode\": \"NORMAL\"}'"
-
-# ArbitrCockpit
-curl https://leviathanstory.ru/arbitr/  # пароль: arbitr2026
-
-# Логи live
-ssh levi "journalctl -u leviathan_agent -f"
+NOT сделано (потом):
+  - Delivery: дашборд + CLI для Claude Manager — низкий приоритет
 ```
