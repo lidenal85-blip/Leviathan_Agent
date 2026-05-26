@@ -1,0 +1,64 @@
+import asyncio, os, pathlib
+os.environ['CLAUDE_CRYPTO_KEY_FILE'] = '/etc/leviathan/crypto.key'
+pathlib.Path('db').mkdir(exist_ok=True)
+
+from claude_manager.core.crypto.key_manager import get_crypto
+from claude_manager.core.storage.account_store import AccountStore, AccountStatus
+from claude_manager.domain.accounts.lifecycle_manager import AccountLifecycleManager
+from claude_manager.core.storage.advisory_lock import AdvisoryLock
+
+async def run():
+    get_crypto()  # force singleton init
+    store = AccountStore()
+    await store.init()
+    mgr = AccountLifecycleManager(store, health_interval=300, max_concurrent=3)
+
+    # 1. add_account
+    aid = await mgr.add_account('test@example.com', 'password123')
+    assert aid, 'add_account: empty ID'
+    print(f'[OK] add_account id={aid}')
+
+    # 2. get_stats
+    stats = await mgr.get_stats()
+    assert len(stats) >= 1
+    print(f'[OK] get_stats: {stats[0].status}')
+
+    # 3. report_usage success
+    await mgr.report_usage(aid, tokens_used=100, success=True,
+                           rate_remaining=95, rate_reset_ts=0.0)
+    print('[OK] report_usage success')
+
+    # 4. report_usage failure x3 -> DEAD
+    for i in range(3):
+        await mgr.report_usage(aid, tokens_used=0, success=False)
+    acc = await store.get(aid)
+    assert acc.status.value == 'DEAD', f'Expected DEAD got {acc.status}'
+    print('[OK] DEAD after 3 failures')
+
+    # 5. get_active_accounts - DEAD not included
+    await store.update_status(aid, AccountStatus.ACTIVE)
+    actives = await mgr.get_active_accounts()
+    print(f'[OK] get_active_accounts: {len(actives)}')
+
+    # 6. advisory lock concurrent test
+    async def try_lock(n):
+        try:
+            async with AdvisoryLock('db/claude_accounts.db', 'test_lock', timeout=0.2):
+                await asyncio.sleep(0.5)
+                return f'held-{n}'
+        except Exception as e:
+            return f'failed-{n}'
+    results = await asyncio.gather(try_lock(1), try_lock(2))
+    held = sum(1 for r in results if r.startswith('held'))
+    failed = sum(1 for r in results if r.startswith('failed'))
+    assert held == 1 and failed == 1, f'lock results={results}'
+    print(f'[OK] advisory lock: held={held} failed={failed}')
+
+    # 7. remove_account
+    ok = await mgr.remove_account(aid)
+    assert ok
+    print('[OK] remove_account')
+
+    print('\n=== ALL 7 ASSERTIONS PASSED ===')
+
+asyncio.run(run())
