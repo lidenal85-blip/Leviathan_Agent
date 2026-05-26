@@ -28,10 +28,12 @@ class TelegramNotifier:
         self.chat_id = admin_chat_id
 
     async def send(self, text: str, parse_mode: str = "HTML") -> None:
-        try:
-            await self.bot.send_message(self.chat_id, text, parse_mode=parse_mode)
-        except Exception as e:
-            logger.error("TG send error: %s", e)
+        TG_LIMIT = 4000
+        for chunk in [text[i:i+TG_LIMIT] for i in range(0, max(len(text), 1), TG_LIMIT)]:
+            try:
+                await self.bot.send_message(self.chat_id, chunk, parse_mode=parse_mode)
+            except Exception as e:
+                logger.error("TG send error: %s", e); break
 
     async def on_task_start(self, task: "Task") -> None:
         await self.send(
@@ -50,10 +52,8 @@ class TelegramNotifier:
 
     async def on_task_done(self, task: "Task") -> None:
         duration = task.finished_at - task.created_at
-        await self.send(
-            f"✅ <b>Задача #{task.id} завершена</b> ({duration:.0f}s)\n\n"
-            f"{task.result[:1000]}"
-        )
+        header = f"✅ <b>Задача #{task.id} завершена</b> ({duration:.0f}s)\n\n"
+        await self.send(header + (task.result or ""))
 
     async def on_task_failed(self, task: "Task") -> None:
         await self.send(
@@ -239,6 +239,13 @@ class AgentRunner:
                     await self.notifier.on_task_done(completed)
                 else:
                     await self.notifier.on_task_failed(completed)
+
+                # ━━ FileLogger ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                try:
+                    from db.file_logger import get_file_logger
+                    get_file_logger().log_task(completed)
+                except Exception as _log_err:
+                    logger.warning("FileLogger skipped: %s", _log_err)
 
             except asyncio.CancelledError:
                 from agent.core import TaskStatus

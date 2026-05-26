@@ -142,14 +142,15 @@ class AccountLifecycleManager:
     # ── публичный API ───────────────────────────────────────────────
 
     async def add_account(self, email: str, password: str) -> str:
-        """Добавить аккаунт и запустить первый health check."""
+        """Добавить аккаунт. Health check запустится scheduler-ом по расписанию.
+        Немедленную проверку не делаем: новый аккаунт без session_key всё равно
+        пойдёт в AUTH_FAILED и перебьёт счётчики. Пусть пользователь сначала
+        задаст session_key через update_session_key, тогда scheduler подхватит.
+        """
         _log.task(f"add_account: {email}")
         account_id = await self._store.add(email, password)
-        _log.step(f"account_id={account_id}, запуск health check")
-        # запускаем health check немедленно в фоне
-        asyncio.create_task(self._health_check_one(account_id))
         _log.result(f"add_account: {email} id={account_id}")
-        _log.next("если session_key пуст — нужна ротация")
+        _log.next("scheduler запустит health check на следующем цикле")
         return account_id
 
     async def remove_account(self, account_id: str) -> bool:

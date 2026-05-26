@@ -204,7 +204,7 @@ DELIVERY_TOOL_SCHEMAS = [
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "Поисковый запрос"},
-                "limit": {"type": "integer", "description": "Максимум результатов", "default": 5},
+                "limit": {"type": "integer", "description": "Максимум результатов (по умолчанию 5)"},
             },
             "required": ["query"],
         },

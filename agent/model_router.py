@@ -23,6 +23,7 @@ logger = logging.getLogger("model_router")
 class ModelMode(str, Enum):
     GEMINI_ONLY         = "GEMINI_ONLY"
     CLAUDE_ONLY         = "CLAUDE_ONLY"
+    GROQ_ONLY           = "GROQ_ONLY"
     GEMINI_THINK_CLAUDE = "GEMINI_THINK_CLAUDE"
     CLAUDE_THINK_GEMINI = "CLAUDE_THINK_GEMINI"
     AUTO                = "AUTO"

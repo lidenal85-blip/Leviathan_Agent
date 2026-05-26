@@ -213,3 +213,42 @@ git pull origin main
 systemctl restart leviathan_agent
 curl http://localhost:8200/health
 ```
+
+---
+
+## Сессия 2026-05-26 — Диагностика + claude-multi-account cleanup
+**Модель:** Claude Sonnet 4.6 (claude.ai MCP)
+**Задача:** Диагностика Gemini 2.5-flash, аудит ветки feature/claude-multi-account, cleanup и продолжение разработки
+**Статус:** 🔄 В работе
+
+### ШАГ 1 — Диагностика Gemini ✅
+- Проверены все 14 ключей на gemini-2.5-flash напрямую через API
+- Результат: K1,K3-K6,K11-K13 → OK (8 рабочих)
+- K7,K8 → 403 PERMISSION_DENIED (заблокированы на уровне GCP проекта, не quota)
+- K2,K9,K10,K14 → 503 временная недоступность
+- GEMINI_MODEL уже был gemini-2.5-flash в settings.py — модель правильная
+
+### ШАГ 2 — Фикс FC-loop ("Unknown field for Schema: default") ✅
+- Найдена причина: tools_delivery.py строка 207 содержала "default": 5 в Gemini Schema
+- Gemini 2.5-flash не принимает поле default в function declarations
+- Фикс: убрал "default": 5, перенёс значение в description
+- Перезапустил агент, проверил — FC-loop работает, bash_tool вызвался через provider=gemini
+- Файл: agent/tools_delivery.py
+
+### ШАГ 3 — Аудит ветки feature/claude-multi-account ✅
+- 6 коммитов поверх main, 2537 строк
+- Написано и работает:
+  * CryptoKeyManager (58 строк, тесты OK)
+  * AccountStore (172 строки, тесты OK)
+  * AdvisoryLock (109 строк, тесты OK)
+  * AccountLifecycleManager (488 строк, 7/7 тестов OK)
+  * SessionContextManager (228 строк)
+  * ClaudeAdapter (511 строк, 16/16 тестов OK)
+  * LLMProviderPool (397 строк)
+  * StepLogger (113 строк)
+- Незакоммичено: test_pool.py (SyntaxError стр.242), pool.py, groq_adapter.py,
+  tools_adaptive.py, docs/LEVEL6_TZ.md, mcp_server/leviathan_mcp_server.py
+- Мусор: lifecycle_manager.py.bak, test_lifecycle.py.bak, settings.py.bak
+- Следующий уровень: LEVEL6_TZ.md описывает TaskPlanner + ProjectExecutor
+
+### ШАГ 4 — Cleanup + фикс test_pool.py 🔄
