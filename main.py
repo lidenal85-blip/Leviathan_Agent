@@ -116,6 +116,43 @@ async def lifespan(app: FastAPI):
         runner   = AgentRunner(agent, storage, notifier)
         dp       = Dispatcher()
         setup_bot_handlers(tg_router, runner, notifier)
+
+        # ── Level 6: Project Executor ───────────────────────────────
+        try:
+            from claude_manager.core.storage.project_store import ProjectStore
+            from claude_manager.domain.projects.project_executor import ProjectExecutor
+            from claude_manager.delivery.web.project_tg_handlers import setup_project_handlers
+            from claude_manager.providers.pool import LLMProviderPool
+
+            _proj_store    = ProjectStore(getattr(settings, "CLAUDE_ACCOUNTS_DB", "db/claude_projects.db").replace("accounts", "projects"))
+            await _proj_store.init()
+            from claude_manager.core.storage.account_store import AccountStore as _AS
+            from claude_manager.domain.accounts.lifecycle_manager import AccountLifecycleManager as _ALM
+            from claude_manager.domain.sessions.context_manager import SessionContextManager as _SCM
+            _acct_store = _AS(getattr(settings, "CLAUDE_ACCOUNTS_DB", "db/claude_accounts.db"))
+            _scm        = _SCM(getattr(settings, "CLAUDE_SESSIONS_DB", "db/claude_sessions.db"))
+            _lifecycle  = _ALM(_acct_store)
+            _llm_pool   = LLMProviderPool(store=_acct_store, lifecycle=_lifecycle, sessions=_scm)
+            await _llm_pool.init()
+            _proj_executor = ProjectExecutor(
+                pool=_llm_pool,
+                store=_proj_store,
+                notify=lambda pid, txt: asyncio.create_task(
+                    bot.send_message(settings.TG_ADMIN_CHAT_ID, txt, parse_mode="HTML")
+                ),
+            )
+            setup_project_handlers(
+                router=tg_router,
+                pool=_llm_pool,
+                store=_proj_store,
+                executor=_proj_executor,
+                admin_chat_id=settings.TG_ADMIN_CHAT_ID,
+            )
+            logger.info("✅ Level 6 Project Executor подключён")
+        except Exception as _e:
+            logger.warning("⚠️ Level 6 не загрузился: %s", _e)
+        # ─────────────────────────────────────────────────────────
+
         dp.include_router(tg_router)
         asyncio.create_task(runner.run_loop())
         asyncio.create_task(dp.start_polling(bot, handle_signals=False))
