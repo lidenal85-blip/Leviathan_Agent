@@ -389,3 +389,13 @@ try:
 except ImportError as _e:
     import logging
     logging.getLogger("tools").warning("tools_extra not available: %s", _e)
+
+# ── File tools: send_file_to_tg, write_and_send_tg ────────────
+try:
+    from agent.tools_file import TOOL_DEFINITIONS as _FD, TOOL_HANDLERS as _FH
+    for _td in _FD:
+        GEMINI_TOOLS.append(_td)
+    TOOLS_REGISTRY.update(_FH)
+except ImportError as _e:
+    import logging
+    logging.getLogger("tools").warning("tools_file not available: %s", _e)

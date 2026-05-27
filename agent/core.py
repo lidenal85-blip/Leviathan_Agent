@@ -218,6 +218,18 @@ class LeviathanAgent:
         task.status = TaskStatus.RUNNING
         logger.info("Agent: задача %s начата: %s", task.id, task.prompt[:80])
 
+        # ── Подгрузка контекста из памяти ────────────────────────────
+        try:
+            from db.context_memory import get_memory
+            _mem = get_memory()
+            _ctx = _mem.build_context_block(limit=10)
+            if _ctx:
+                task.prompt = _ctx + "\n\n" + task.prompt
+                logger.info("Agent: контекст памяти подгружен (%d байт)", len(_ctx))
+        except Exception as _e:
+            logger.warning("Память: ошибка подгрузки: %s", _e)
+        # ───────────────────────────────────────────────────────────
+
         # Открываем запись в журнале
         if self.journal:
             from db.journal import TaskRun, RunStatus
@@ -668,6 +680,18 @@ class LeviathanAgent:
             TaskStatus.CANCELLED: RunStatus.SKIPPED,
         }.get(task.status, RunStatus.FAILED)
         await self.journal.finish_run(task.journal_run_id, status)
+
+        # ── Сохраняем в память ──────────────────────────────────────
+        try:
+            from db.context_memory import get_memory
+            _orig = task.prompt.split("=== Конец контекста ===")[-1].strip()
+            get_memory().save(
+                prompt  = _orig or task.prompt,
+                result  = str(task.result or "")[:3000],
+            )
+        except Exception as _e:
+            logger.warning("Память: ошибка сохранения: %s", _e)
+        # ───────────────────────────────────────────────────────
 
 # Intent Detection (v3.2)
 try:
