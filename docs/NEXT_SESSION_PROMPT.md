@@ -1,4 +1,4 @@
-# Передаточный промт — Фаза 1 (Core Engine)
+# Передаточный промт — Level 6 (остаток) + Фаза 2
 
 Вставь в начало новой сессии:
 
@@ -11,49 +11,35 @@
 Сервер: root@78.17.24.96
 Путь: /opt/leviathan_engine/agent_service/
 
-KOHTЕКСТ (прочитай перед началом):
-  cat docs/AGENT_RULES.md
-  cat docs/ECOSYSTEM.md
-  cat docs/ROADMAP.md
-  cat docs/agent_logs.md | tail -50
+ЧТО УЖЕ СДЕЛАНО (Фаза 1) — НЕ МЕНЯТЬ:
+  ✅ TaskStatus.PAUSED в agent/core.py
+  ✅ Task: paused_at, pause_reason, current_step, fire_and_forget
+  ✅ execution/pipeline_log.py — plog(), PipelineEvent
+  ✅ execution/backoff_scheduler.py — BackoffScheduler, _check_api_gate
+  ✅ core_bridge/key_pool.py — all_rate_limited()
+  ✅ db/storage.py — новые поля, get_paused_tasks()
+  ✅ agent/tg_bot.py — hot-resume, fire_and_forget режим
 
-ЧТО УЖЕ ЕСТЬ (не трогать):
-  ✅ claude_manager/ — весь слой полностью
-  ✅ claude_manager/providers/pool.py — LLMProviderPool
-  ✅ agent/core.py — TaskStatus (PENDING/RUNNING/WAITING/DONE/FAILED)
-  ✅ logs/claude_manager.log
+ТЕКУЩАЯ ЗАДАЧА — в порядке приоритета:
 
-ТЕКУЩАЯ ЗАДАЧА — Фаза 1 (Core Engine), порядок:
+1. Фикс test_pool.py SyntaxError стр.242
+   - Прочитай test_pool.py, исправь SyntaxError
+   - Запусти: cd /opt/leviathan_engine/agent_service && python3 -m py_compile test_pool.py
 
-1. PAUSED state + hot-resume
-   - Добавить TaskStatus.PAUSED в agent/core.py
-   - При PAUSED: сохранять current_step + steps_data в SQLite (UPSERT)
-   - При старте агента: если PAUSED/RUNNING → hot-resume с last step
-
-2. 429-backoff + _check_api_gate()
-   - try-except вокруг HTTP (Gemini/Groq/Claude)
-   - 429 → PAUSED + запись в logs/pipeline.log
-   - asyncio таймер 1-3 часа (настраиваемый)
-   - _check_api_gate(): ping "ping" на gemini-2.5-flash
-   - 200 → PAUSED→RUNNING, hot-resume
-   - 429 снова → +1 час
-
-3. logs/pipeline.log (отдельный от claude_manager.log)
-   - Формат: [2026-05-28 12:00:00] TASK_ID | EVENT | деталь
-   - События: 429_caught, backoff_start, gate_ping, gate_ok, resume, complete
-
-4. Fire-and-forget режим
-   - Молчание во время выполнения
-   - Одна финальная строка в TG: "Конвейер завершён. Результат: [path]"
-
-5. Level 6 остаток
+2. Level 6 остаток:
    - claude_manager/domain/projects/resume_manager.py
    - claude_manager/domain/projects/project_orchestrator.py
-   - Фикс test_pool.py SyntaxError стр.242
+   - Спецификация: docs/LEVEL6_TZ.md
+   - Интерфейс: claude_manager/providers/pool.py (LLMProviderPool)
+   - Правило: все через pool.complete(), не напрямую
+
+3. Фаза 2 (деплой продуктов) — после выполнения пунктов 1-2:
+   - Book Factory: LEVIATHAN_refactored (v5) → /opt/book_factory/ :8210
+   - Book Downloader → /opt/book_downloader/ :8220
+   - Textbook Platform → /opt/textbook_platform/ :8230
 
 АРХИТЕКТУРНЫЕ ПРАВИЛА:
-  - ВСЕ LLM-вызовы — через LLMProviderPool.complete(), не напрямую
-  - Не менять архитектуру claude_manager/
-  - Не нарушать контракты публичных API
+  - ВСЕ LLM — через LLMProviderPool.complete()
+  - StepLogger во всех новых модулях
   - Пушить в feature/claude-multi-account
 ```

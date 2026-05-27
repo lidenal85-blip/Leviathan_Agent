@@ -283,3 +283,51 @@ curl http://localhost:8200/health
 **Создано:** ECOSYSTEM.md, INTEGRATION_PROTOCOL.md, ROADMAP.md  
 **Изменено:** AGENT_RULES.md (v2.0), удалён /opt/leviathan_agent/  
 **Следующее:** Фаза 1 — PAUSED state + 429-backoff + pipeline.log
+
+---
+
+## Сессия 2026-05-28 — Фаза 1: Core Engine (PAUSED + 429-backoff + pipeline.log)
+**Модель:** Claude Sonnet 4.6 (claude.ai MCP)  
+**Задача:** Реализация Фазы 1 из ROADMAP.md  
+**Статус:** ✅ Завершена
+
+### ШАГ 1 — execution/pipeline_log.py ✅
+- PipelineEvent constants, plog() функция
+- Файл: logs/pipeline.log (формат: [ts] TASK_ID | EVENT | detail)
+
+### ШАГ 2 — execution/backoff_scheduler.py ✅
+- BackoffScheduler.pause_and_wait(): PAUSED → asyncio sleep 1-3h → gate ping → RUNNING
+- _check_api_gate(): ping gemini-2.5-flash, Groq fallback
+- BACKOFF_HOURS_MAX = 3, авто-расширение при повторных блокировках
+
+### ШАГ 3 — agent/core.py ✅
+- TaskStatus.PAUSED добавлен
+- Task: paused_at, pause_reason, current_step, fire_and_forget
+- LeviathanAgent._storage_ref для backoff save
+- 429 backoff: если all_rate_limited() → BackoffScheduler.pause_and_wait()
+- fire_and_forget: on_step не вызывается в TG
+- TASK_COMPLETE log в pipeline.log
+
+### ШАГ 4 — db/storage.py ✅
+- ALTER TABLE: paused_at, pause_reason, current_step, fire_and_forget (без DROP)
+- UPSERT обновлён с новыми полями
+- get_paused_tasks() — для hot-resume при старте
+
+### ШАГ 5 — agent/tg_bot.py ✅
+- AgentRunner._storage_ref пробросен в agent
+- run_loop(): hot-resume PAUSED задач при старте
+- fire_and_forget: одна финальная строка вместо on_task_done
+- _hot_resume_paused(): скан БД, TG-уведомление, re-queue
+
+### ШАГ 6 — core_bridge/key_pool.py ✅
+- all_rate_limited() — проверка всех ключей
+
+### ШАГ 7 — Рестарт + проверка ✅
+- Сервис active, health OK, 14 ключей available
+- Синтаксис всех файлов чистый
+
+## Итог сессии 2026-05-28 (Phase 1)
+**Статус:** ✅ Завершена  
+**Создано:** pipeline_log.py, backoff_scheduler.py  
+**Изменено:** core.py, storage.py, tg_bot.py, key_pool.py  
+**Остаток:** Level 6 (resume_manager, project_orchestrator), test_pool.py fix

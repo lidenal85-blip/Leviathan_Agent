@@ -127,6 +127,10 @@ class GeminiKeyPool:
     def available_count(self) -> int:
         return sum(1 for s in self._keys if s.is_available)
 
+    def all_rate_limited(self) -> bool:
+        """True если все ключи заблокированы (нет доступных)."""
+        return all(not s.is_available for s in self._keys)
+
 
 # ═══════════════════════════════════════════════════════════════
 # BRIDGE: пробуем подключиться к engine core

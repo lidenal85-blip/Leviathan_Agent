@@ -170,27 +170,36 @@ def setup_bot_handlers(
 
     @router.message(Command("claude_add"))
     async def cmd_claude_add(msg: Message) -> None:
-        """/claude_add email session_key
+        """/claude_add email session_key [password]
 
         session_key — из DevTools → Application → Cookies → claude.ai → sessionKey
+        password    — опционально, для авто-ротации через Playwright
         """
-        parts = (msg.text or "").split(maxsplit=2)
+        parts = (msg.text or "").split(maxsplit=3)
         if len(parts) < 3:
             await msg.answer(
-                "❌ Формат: /claude_add email session_key\n\n"
+                "❌ Формат: /claude_add email session_key [password]\n\n"
                 "Как получить sessionKey:\n"
                 "1. Открой claude.ai, войди в аккаунт\n"
                 "2. F12 → Application → Cookies → claude.ai\n"
                 "3. Найди sessionKey, скопируй"
             )
             return
-        email, session_key = parts[1], parts[2]
+        email       = parts[1]
+        session_key = parts[2]
+        password    = parts[3] if len(parts) > 3 else ""
         try:
             from claude_manager.core.storage.account_store import AccountStore as _AS
-            _store = _AS(getattr(__import__("config.settings", fromlist=["settings"]), "CLAUDE_ACCOUNTS_DB", "db/claude_accounts.db"))
+            import importlib
+            cfg = importlib.import_module("config.settings")
+            _store = _AS(getattr(cfg, "CLAUDE_ACCOUNTS_DB", "db/claude_accounts.db"))
             await _store.init()
-            account_id = await _store.add(email, session_key)
-            await msg.answer(f"✅ Аккаунт добавлен\nid: {account_id}\nemail: {email}")
+            account_id = await _store.add(email, session_key, password)
+            pw_note = " + password сохранён (авто-ротация активна)" if password else ""
+            await msg.answer(
+                f"✅ Аккаунт добавлен{pw_note}\n"
+                f"id: {account_id}\nemail: {email}"
+            )
         except Exception as exc:
             await msg.answer(f"❌ Ошибка: {exc}")
 
@@ -273,6 +282,8 @@ class AgentRunner:
         self._queue: asyncio.Queue = asyncio.Queue()
         self._cancel_event = asyncio.Event()
         self._ws_clients: set = set()  # WebSocket клиенты
+        # Phase 1: пробрасываем ссылку на storage в агент для backoff save
+        self.agent._storage_ref = storage
 
     async def submit(
         self,
@@ -292,12 +303,18 @@ class AgentRunner:
     async def run_loop(self) -> None:
         """Основной цикл обработки задач."""
         logger.info("AgentRunner: запущен")
+        # Phase 1: hot-resume PAUSED/RUNNING задач при старте
+        await self._hot_resume_paused()
         while True:
             task = await self._queue.get()
             self.current_task = task
             self._cancel_event.clear()
 
             await self.notifier.on_task_start(task)
+
+            # Phase 1: fire_and_forget — не отправляем start-уведомление
+            if task.fire_and_forget:
+                await self.notifier.send(f"⏳ Задача #{task.id} запущена в фоне")
 
             # Устанавливаем callbacks
             self.agent.on_step = self._on_step
@@ -308,7 +325,14 @@ class AgentRunner:
                 await self.storage.save(completed)
 
                 if completed.status.value == "done":
-                    await self.notifier.on_task_done(completed)
+                    if task.fire_and_forget:
+                        # Fire-and-forget: одна финальная строка
+                        result_preview = (completed.result or "")[:300]
+                        await self.notifier.send(
+                            f"Конвейер завершён. Результат: {result_preview}"
+                        )
+                    else:
+                        await self.notifier.on_task_done(completed)
                 else:
                     await self.notifier.on_task_failed(completed)
 
@@ -334,6 +358,25 @@ class AgentRunner:
         """Уведомление о шаге — в TG и WebSocket."""
         await self.notifier.on_step(task, step)
         await self.storage.save(task)
+
+    async def _hot_resume_paused(self) -> None:
+        """Восстанавливаем PAUSED/RUNNING задачи после перезапуска сервиса."""
+        from execution.pipeline_log import PipelineEvent, plog
+        try:
+            paused = await self.storage.get_paused_tasks()
+        except Exception as e:
+            logger.warning("hot_resume: ошибка при чтении PAUSED: %s", e)
+            return
+        if not paused:
+            return
+        logger.info("hot_resume: найдено %d прерванных задач", len(paused))
+        for task in paused:
+            plog(task.id, PipelineEvent.HOT_RESUME,
+                 f"шаг={task.current_step} status_was={task.status.value}")
+            await self.notifier.send(
+                f"♻️ Возобновление задачи #{task.id} с шага {task.current_step}"
+            )
+            await self._queue.put(task)
         # Рассылаем WS клиентам
         for ws in list(self._ws_clients):
             try:
