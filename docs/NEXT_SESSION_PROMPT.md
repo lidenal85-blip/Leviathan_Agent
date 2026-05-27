@@ -1,6 +1,6 @@
-# Передаточный промт — Level 6
+# Передаточный промт — Фаза 1 (Core Engine)
 
-Отправь в начале новой сессии:
+Вставь в начало новой сессии:
 
 ---
 
@@ -8,47 +8,52 @@
 Роль: developer_v2 (ты — Senior Developer, реализуешь по готовым спецификациям)
 Репо: github.com/lidenal85-blip/Leviathan_Agent
 Ветка: feature/claude-multi-account
-Последний коммит: f932ca0
 Сервер: root@78.17.24.96
 Путь: /opt/leviathan_engine/agent_service/
 
-CLAUDE MANAGER — что уже есть (не трогать):
-  ✅ claude_manager/logger.py              — StepLogger
-  ✅ claude_manager/core/crypto/           — CryptoKeyManager
-  ✅ claude_manager/core/storage/account_store.py
-  ✅ claude_manager/core/storage/advisory_lock.py
-  ✅ claude_manager/domain/accounts/lifecycle_manager.py
-  ✅ claude_manager/domain/sessions/context_manager.py
-  ✅ claude_manager/providers/claude/adapter.py
-  ✅ claude_manager/providers/pool.py      — LLMProviderPool + AllAccountsRateLimited
+KOHTЕКСТ (прочитай перед началом):
+  cat docs/AGENT_RULES.md
+  cat docs/ECOSYSTEM.md
+  cat docs/ROADMAP.md
+  cat docs/agent_logs.md | tail -50
 
-TEKUЩАЯ ЗАДАЧА — Level 6, порядок:
-  1. claude_manager/core/storage/project_store.py
-  2. claude_manager/domain/projects/task_planner.py
-  3. claude_manager/domain/projects/project_executor.py
-  4. claude_manager/domain/projects/resume_manager.py
-  5. claude_manager/domain/projects/project_orchestrator.py
-  6. agent/tg_bot.py — добавить команды
+ЧТО УЖЕ ЕСТЬ (не трогать):
+  ✅ claude_manager/ — весь слой полностью
+  ✅ claude_manager/providers/pool.py — LLMProviderPool
+  ✅ agent/core.py — TaskStatus (PENDING/RUNNING/WAITING/DONE/FAILED)
+  ✅ logs/claude_manager.log
 
-КЛЮЧЕВОЕ (прочтить перед началом):
-  - docs/LEVEL6_TZ.md — полное ТЗ
-  - claude_manager/providers/pool.py — AllAccountsRateLimited(next_reset_ts),
-    pool._earliest_reset_ts(), pool.complete(), pool.migrate_session()
-  - claude_manager/logger.py — StepLogger обязателен во всех новых модулях
-  - docs/sessions/2026-05-26_claude-manager-level6.md — полный контекст
+ТЕКУЩАЯ ЗАДАЧА — Фаза 1 (Core Engine), порядок:
 
-АРХИТЕКТУРНЫЕ ПРАВИЛА Level 6:
-  - ВСЕ модули вызывают LLMProviderPool.complete(), не ClaudeAdapter напрямую
-  - ProjectScheduler из ТЗ НЕ делать — избыточный слой, логика в Orchestrator
-  - TG-команды: префикс /p... (не путать с /status Gemini-задач):
-    /project, /pstatus, /ppause, /presume, /projects, /pqueue, /checkpoints
-  - Файлы по архитектуре в claude_manager/domain/projects/, НЕ в core_bridge/
-  - Логирование обязательно через StepLogger во всех модулях:
-    log.task() → начало (log + TG)
-    log.step() → шаг (только log)
-    log.result() → итог (log + TG)
-    log.error() → ошибка (log + TG-алерт)
+1. PAUSED state + hot-resume
+   - Добавить TaskStatus.PAUSED в agent/core.py
+   - При PAUSED: сохранять current_step + steps_data в SQLite (UPSERT)
+   - При старте агента: если PAUSED/RUNNING → hot-resume с last step
 
-NOT сделано (потом):
-  - Delivery: дашборд + CLI для Claude Manager — низкий приоритет
+2. 429-backoff + _check_api_gate()
+   - try-except вокруг HTTP (Gemini/Groq/Claude)
+   - 429 → PAUSED + запись в logs/pipeline.log
+   - asyncio таймер 1-3 часа (настраиваемый)
+   - _check_api_gate(): ping "ping" на gemini-2.5-flash
+   - 200 → PAUSED→RUNNING, hot-resume
+   - 429 снова → +1 час
+
+3. logs/pipeline.log (отдельный от claude_manager.log)
+   - Формат: [2026-05-28 12:00:00] TASK_ID | EVENT | деталь
+   - События: 429_caught, backoff_start, gate_ping, gate_ok, resume, complete
+
+4. Fire-and-forget режим
+   - Молчание во время выполнения
+   - Одна финальная строка в TG: "Конвейер завершён. Результат: [path]"
+
+5. Level 6 остаток
+   - claude_manager/domain/projects/resume_manager.py
+   - claude_manager/domain/projects/project_orchestrator.py
+   - Фикс test_pool.py SyntaxError стр.242
+
+АРХИТЕКТУРНЫЕ ПРАВИЛА:
+  - ВСЕ LLM-вызовы — через LLMProviderPool.complete(), не напрямую
+  - Не менять архитектуру claude_manager/
+  - Не нарушать контракты публичных API
+  - Пушить в feature/claude-multi-account
 ```

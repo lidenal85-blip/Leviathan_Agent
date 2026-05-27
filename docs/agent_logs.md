@@ -252,3 +252,34 @@ curl http://localhost:8200/health
 - Следующий уровень: LEVEL6_TZ.md описывает TaskPlanner + ProjectExecutor
 
 ### ШАГ 4 — Cleanup + фикс test_pool.py 🔄
+
+---
+
+## Сессия 2026-05-28 — Архитектура экосистемы + документация
+**Модель:** Claude Sonnet 4.6 (claude.ai MCP)  
+**Задача:** Аудит документации, анализ 3 продуктов, закладка архитектуры экосистемы  
+**Статус:** ✅ Завершена
+
+### ШАГ 1 — Обновление AGENT_RULES.md ✅
+- Полная актуализация: структура v3.2, claude_manager, LLM-стек, порты
+- Коммит: da474d7
+
+### ШАГ 2 — Удаление /opt/leviathan_agent/ ✅
+- Пустая директория с заглушкой .env — удалена
+- Активный агент: /opt/leviathan_engine/agent_service/
+
+### ШАГ 3 — Анализ 3 продуктов (архивы) ✅
+- LEVIATHAN_refactored (v5): 27 агентов, блоки 1-4 ✅, блок 5 WIP
+- book_downloader: структура есть, sources/ не дописаны
+- textbook_platform: MVP, сервисы не завершены
+
+### ШАГ 4 — Документация экосистемы ✅
+- docs/ECOSYSTEM.md — карта продуктов, порты, петля замыкания
+- docs/INTEGRATION_PROTOCOL.md — HTTP-контракт, health/metrics/POST форматы
+- docs/ROADMAP.md — 5 фаз, чеклисты
+
+## Итог сессии 2026-05-28
+**Статус:** ✅ Завершена  
+**Создано:** ECOSYSTEM.md, INTEGRATION_PROTOCOL.md, ROADMAP.md  
+**Изменено:** AGENT_RULES.md (v2.0), удалён /opt/leviathan_agent/  
+**Следующее:** Фаза 1 — PAUSED state + 429-backoff + pipeline.log
