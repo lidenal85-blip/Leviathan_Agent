@@ -399,3 +399,11 @@ try:
 except ImportError as _e:
     import logging
     logging.getLogger("tools").warning("tools_file not available: %s", _e)
+
+# ── Diet Platform «Пухляш» tools ───────────────────────────
+try:
+    from agent.tools_diet_platform import register_diet_tools
+    register_diet_tools(TOOLS_REGISTRY, GEMINI_TOOLS)
+except ImportError as _e:
+    import logging
+    logging.getLogger("tools").warning("tools_diet_platform not available: %s", _e)

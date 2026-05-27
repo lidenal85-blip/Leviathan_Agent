@@ -187,6 +187,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="LEVIATHAN AGENT", version="3.1.0", lifespan=lifespan)
 
+# Подключение веб-интерфейса для аккаунтов Claude
+try:
+    from delivery.claude_accounts_web import router as claude_accounts_router
+    app.include_router(claude_accounts_router)
+    print("✅ Claude accounts web interface loaded")
+except Exception as e:
+    print(f"⚠️ Claude accounts web interface not loaded: {e}")
+
 # OpenAI-compatible /v1 API (для Cline)
 from api.openai_compat import oai_router  # noqa: E402
 app.include_router(oai_router)

@@ -141,12 +141,13 @@ class AccountLifecycleManager:
 
     # ── публичный API ───────────────────────────────────────────────
 
-    async def add_account(self, email: str, session_key: str) -> str:
-        """Добавить аккаунт. session_key получается вручную из браузера:
-        DevTools → Application → Cookies → claude.ai → sessionKey
+    async def add_account(self, email: str, session_key: str, password: str = "") -> str:
+        """Добавить аккаунт.
+        session_key — из DevTools → Application → Cookies → sessionKey
+        password   — опционально, для авто-ротации через Playwright
         """
         _log.task(f"add_account: {email}")
-        account_id = await self._store.add(email, session_key)
+        account_id = await self._store.add(email, session_key, password)
         _log.result(f"add_account: {email} id={account_id}")
         _log.next("scheduler запустит health check на следующем цикле")
         return account_id
@@ -450,17 +451,31 @@ class AccountLifecycleManager:
         self, acc: Account
     ) -> Optional[str]:
         """
-        Auto-rotate невозможен: claude.ai требует Cloudflare challenge.
-        Пользователь должен обновить sessionKey вручную:
-
-        1. Открой claude.ai, войди в аккаунт
-        2. DevTools (F12) → Application → Cookies → claude.ai
-        3. Найди sessionKey, скопируй значение
-        4. /claude_key {account_id} {session_key}
+        Авто-ротация sessionKey через Playwright.
+        Требует чтобы acc.password был сохранён при add_account.
         """
-        _log.warn(
-            f"_do_rotate: {acc.email} — авто-ротация недоступна (Cloudflare)."
-            f" Обновите вручную: /claude_key {acc.account_id} <key>"
-        )
-        return None
+        if not acc.password:
+            _log.warn(
+                f"_do_rotate: {acc.email} — password не сохранён."
+                f" Обновите вручную: /claude_key {acc.account_id} <key>"
+            )
+            return None
+
+        _log.step(f"_do_rotate: запуск Playwright для {acc.email}")
+        try:
+            from claude_manager.core.auth.claude_login import ClaudeLogin, ClaudeLoginConfig
+            login = ClaudeLogin(ClaudeLoginConfig(headless=True))
+            result = await login.get_session_key(acc.email, acc.password)
+            if result.success and result.session_key:
+                _log.result(f"_do_rotate: {acc.email} — sessionKey получен")
+                return result.session_key
+            else:
+                _log.warn(
+                    f"_do_rotate: {acc.email} — {result.error}."
+                    f" Обновите вручную: /claude_key {acc.account_id} <key>"
+                )
+                return None
+        except Exception as exc:
+            _log.error(f"_do_rotate: {acc.email} — Playwright ошибка: {exc}")
+            return None
         
