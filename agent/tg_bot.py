@@ -573,38 +573,103 @@ def setup_bot_handlers(
             task.pending_approval["event"].set()
         await cb.answer("❌ Отклонено")
 
+    # ── Prompt Architect: хранилище планов ожидающих подтверждения ──────────
+    _pending_plans: dict[str, object] = {}
+
     @router.message(F.text & ~F.text.startswith("/"))
     async def free_text_handler(msg: Message) -> None:
         """
-        Свободный текст без команды → запускаем как задачу агента.
-        Пользователь пишет что угодно, агент сам разбирается что делать.
+        Свободный текст → Prompt Architect анализирует.
+        Простая задача  → сразу в работу.
+        Сложная задача  → показываем план + кнопки Запустить/Изменить/Отмена.
         """
         if not agent_runner:
             await msg.answer("❌ Агент не инициализирован")
             return
-        prompt = msg.text.strip()
-        # Оцениваем длительность задачи
-        is_long = len(prompt.split()) > 10 or any(w in prompt.lower() for w in [
-            "учебник", "книга", "сайт", "проект", "напиши", "сделай", "create", "build",
-            "архитектур", "deploy", "задеплой", "guide", "docs",
-        ])
-        fire_ff = is_long
-        mode = "NORMAL"
 
-        task = await agent_runner.submit(
-            prompt, mode=mode, fire_and_forget=fire_ff
+        prompt = msg.text.strip()
+
+        # Кнопки постоянной клавиатуры — обрабатываем как команды, не задачи
+        KEYBOARD_BTNS = {"⚡ Статус", "📋 Задачи", "📊 Метрики", "🧠 Модель", "🔑 Ключи", "🛑 Стоп"}
+        if prompt in KEYBOARD_BTNS:
+            return
+
+        from agent.prompt_architect import PromptArchitect, format_plan_message
+        architect: PromptArchitect = getattr(agent_runner, "_architect", None)
+        if architect is None:
+            architect = PromptArchitect(llm_pool=None)
+
+        # Анализируем
+        plan = await architect.analyze(prompt)
+
+        if not plan.is_complex:
+            # Простая задача — сразу запускаем
+            task = await agent_runner.submit(prompt, mode="NORMAL")
+            await msg.answer(
+                f"➡️ <code>{task.id[:8]}</code> — выполняю",
+                parse_mode="HTML"
+            )
+            return
+
+        # Сложная задача — показываем план
+        import uuid
+        plan_id = uuid.uuid4().hex[:12]
+        _pending_plans[plan_id] = plan
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="▶️ Запустить",  callback_data=f"plan:run:{plan_id}"),
+            InlineKeyboardButton(text="✏️ Изменить",   callback_data=f"plan:edit:{plan_id}"),
+            InlineKeyboardButton(text="❌ Отмена",      callback_data=f"plan:cancel:{plan_id}"),
+        ]])
+        await msg.answer(
+            format_plan_message(plan),
+            parse_mode="HTML",
+            reply_markup=kb,
         )
-        if is_long:
-            await msg.answer(
-                f"⏳ Задача <code>{task.id[:8]}</code> запущена в фоне.\n"
-                f"Уведомлю когда завершится.",
-                parse_mode="HTML"
+
+    @router.callback_query(F.data.startswith("plan:"))
+    async def cb_plan(cb: CallbackQuery) -> None:
+        parts   = cb.data.split(":")
+        action  = parts[1]   # run | edit | cancel
+        plan_id = parts[2]
+
+        from agent.prompt_architect import ArchitectPlan
+        plan: ArchitectPlan = _pending_plans.get(plan_id)
+
+        if action == "cancel" or plan is None:
+            _pending_plans.pop(plan_id, None)
+            await cb.message.edit_text("❌ Отменено", reply_markup=None)
+            await cb.answer()
+            return
+
+        if action == "edit":
+            await cb.message.edit_text(
+                f"✏️ Отправь уточнённую версию задачи (или /cancel):\n"
+                f"<code>{plan.improved_prompt}</code>",
+                parse_mode="HTML",
+                reply_markup=None,
             )
-        else:
-            await msg.answer(
-                f"➡️ Выполняю: <code>{task.id[:8]}</code>",
-                parse_mode="HTML"
-            )
+            # Помечаем план как «ожидает редактирования» — следующее
+            # сообщение пользователя станет новой задачей через free_text
+            _pending_plans.pop(plan_id, None)
+            await cb.answer()
+            return
+
+        # action == run
+        _pending_plans.pop(plan_id, None)
+        final_prompt = plan.improved_prompt
+        task = await agent_runner.submit(
+            final_prompt,
+            mode="NORMAL",
+            fire_and_forget=True,
+        )
+        await cb.message.edit_text(
+            f"⏳ Запущено <code>{task.id[:8]}</code>\n"
+            f"Уведомлю когда завершится.",
+            parse_mode="HTML",
+            reply_markup=None,
+        )
+        await cb.answer("▶️ Запущено")
 
 
 class AgentRunner:
@@ -625,6 +690,9 @@ class AgentRunner:
         self._cancel_event = asyncio.Event()
         self._ws_clients: set = set()
         self.kb = kb  # KnowledgeBase для сохранения опыта после задач
+        # Prompt Architect
+        from agent.prompt_architect import PromptArchitect
+        self._architect = PromptArchitect(llm_pool=None)  # pool подключается через set_pool()
         # Phase 1: _storage_ref для backoff save
         self.agent._storage_ref = storage
 
