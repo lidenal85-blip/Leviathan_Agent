@@ -332,6 +332,39 @@ def setup_bot_handlers(
             task.pending_approval["event"].set()
         await cb.answer("❌ Отклонено")
 
+    @router.message(F.text & ~F.text.startswith("/"))
+    async def free_text_handler(msg: Message) -> None:
+        """
+        Свободный текст без команды → запускаем как задачу агента.
+        Пользователь пишет что угодно, агент сам разбирается что делать.
+        """
+        if not agent_runner:
+            await msg.answer("❌ Агент не инициализирован")
+            return
+        prompt = msg.text.strip()
+        # Оцениваем длительность задачи
+        is_long = len(prompt.split()) > 10 or any(w in prompt.lower() for w in [
+            "учебник", "книга", "сайт", "проект", "напиши", "сделай", "create", "build",
+            "архитектур", "deploy", "задеплой", "guide", "docs",
+        ])
+        fire_ff = is_long
+        mode = "NORMAL"
+
+        task = await agent_runner.submit(
+            prompt, mode=mode, fire_and_forget=fire_ff
+        )
+        if is_long:
+            await msg.answer(
+                f"⏳ Задача <code>{task.id[:8]}</code> запущена в фоне.\n"
+                f"Уведомлю когда завершится.",
+                parse_mode="HTML"
+            )
+        else:
+            await msg.answer(
+                f"➡️ Выполняю: <code>{task.id[:8]}</code>",
+                parse_mode="HTML"
+            )
+
 
 class AgentRunner:
     """Управляет очередью задач."""

@@ -14,7 +14,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # ── Константы ──────────────────────────────────────────────────
-TIMEOUT     = int(os.environ.get("TOOL_TIMEOUT_SEC", "60"))
+TIMEOUT     = int(os.environ.get("TOOL_TIMEOUT_SEC", "300"))  # 5 минут по умолчанию
 MAX_OUTPUT  = 8000   # символов — обрезаем длинный вывод
 MAX_FILE_KB = int(os.environ.get("MAX_FILE_SIZE_KB", "100"))
 
@@ -173,7 +173,18 @@ async def git_commit_push(
         if not result.get("ok") and "nothing to commit" not in result.get("stdout", "") + result.get("stderr", ""):
             logger.warning("git: %s → %s", cmd, result.get("stderr", "")[:100])
 
-    return {"ok": True, "message": message, "repo": repo_path}
+    # Верификация: проверяем что push реально дошёл
+    verify = await bash_tool(f"git log origin/{branch}..HEAD --oneline", workdir=repo_path)
+    unpushed = verify.get("stdout", "").strip()
+    if unpushed:
+        return {"ok": False, "error": f"Push не удался, не запушено {len(unpushed.splitlines())} коммит(ов). Проверь GITHUB_TOKEN.", "repo": repo_path}
+
+    # Убираем токен из URL после push
+    if token and "@" in remote_url:
+        clean_url = remote_url.replace(f"{token}@", "")
+        await bash_tool(f"git remote set-url origin {clean_url}", workdir=repo_path)
+
+    return {"ok": True, "message": message, "repo": repo_path, "pushed": True}
 
 
 # ══════════════════════════════════════════════════════════════
