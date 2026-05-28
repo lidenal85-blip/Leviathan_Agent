@@ -99,6 +99,7 @@ def setup_bot_handlers(
             "Команды:\n"
             "/task <задача> — поставить задачу\n"
             "/status — статус текущей задачи\n"
+            "/model — переключить LLM (auto/gemini/claude/groq)\n"
             "/tasks — последние задачи\n"
             "/stop — остановить агента\n"
             "/log — последние шаги\n",
@@ -246,6 +247,66 @@ def setup_bot_handlers(
             await msg.answer("\n".join(lines))
         except Exception as exc:
             await msg.answer(f"❌ Ошибка: {exc}")
+
+    @router.message(Command("model"))
+    async def cmd_model(msg: Message) -> None:
+        """/model [auto|gemini|claude|groq|gemini_think_claude|claude_think_gemini] — переключить LLM.
+        Без аргумента — показать текущий режим.
+        """
+        from agent.model_router import ModelMode, get_router
+        parts = (msg.text or "").split(maxsplit=1)
+
+        _router = get_router()
+        current = _router.default_mode.value
+
+        if len(parts) == 1:
+            modes_desc = (
+                "❓ <b>/model</b> — смена LLM\n\n"
+                f"✅ <b>Текущий:</b> <code>{current}</code>\n\n"
+                "Доступные режимы:\n"
+                "• <code>auto</code> — авто по содержимом\n"
+                "• <code>gemini</code> — только Gemini (быстро, дешево)\n"
+                "• <code>claude</code> — только Claude (архитектура, код)\n"
+                "• <code>groq</code> — только Groq\n"
+                "• <code>gemini_think_claude</code> — Gemini loop + Claude для сложных шагов\n"
+                "• <code>claude_think_gemini</code> — Claude планирует, Gemini исполняет"
+            )
+            await msg.answer(modes_desc, parse_mode="HTML")
+            return
+
+        raw = parts[1].strip().upper()
+        alias_map = {
+            "AUTO":   "AUTO",
+            "GEMINI": "GEMINI_ONLY",
+            "CLAUDE": "CLAUDE_ONLY",
+            "GROQ":   "GROQ_ONLY",
+            "GEMINI_THINK_CLAUDE": "GEMINI_THINK_CLAUDE",
+            "CLAUDE_THINK_GEMINI": "CLAUDE_THINK_GEMINI",
+        }
+        mode_str = alias_map.get(raw, raw)
+        try:
+            new_mode = ModelMode(mode_str)
+            _router.default_mode = new_mode
+            icons = {
+                "AUTO":               "🧠",
+                "GEMINI_ONLY":        "⚡",
+                "CLAUDE_ONLY":        "🧠🔵",
+                "GROQ_ONLY":          "🟣",
+                "GEMINI_THINK_CLAUDE": "⚡🧠",
+                "CLAUDE_THINK_GEMINI": "🧠⚡",
+            }
+            icon = icons.get(mode_str, "🔄")
+            await msg.answer(
+                f"{icon} Режим переключён: <code>{new_mode.value}</code>\n"
+                f"Следующая задача будет выполнена через <code>{new_mode.value}</code>",
+                parse_mode="HTML",
+            )
+        except ValueError:
+            await msg.answer(
+                f"❌ Неизвестный режим: <code>{raw}</code>\n"
+                "Используй: auto | gemini | claude | groq | gemini_think_claude | claude_think_gemini",
+                parse_mode="HTML",
+            )
 
     @router.callback_query(F.data.startswith("approve:"))
     async def cb_approve(cb: CallbackQuery) -> None:
