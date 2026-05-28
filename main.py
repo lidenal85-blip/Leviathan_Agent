@@ -214,9 +214,10 @@ app.include_router(oai_router)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TaskRequest(BaseModel):
-    prompt:     str
-    mode:       str = "NORMAL"        # SAFE | NORMAL | FULL
-    model_mode: str | None = None     # GEMINI_ONLY | CLAUDE_ONLY | ... | AUTO
+    prompt:          str
+    mode:            str = "NORMAL"        # SAFE | NORMAL | FULL
+    model_mode:      str | None = None     # GEMINI_ONLY | CLAUDE_ONLY | ... | AUTO
+    fire_and_forget: bool = False          # молчание до финала
 
 
 @app.get("/health")
@@ -237,7 +238,12 @@ async def health():
 async def create_task(req: TaskRequest):
     if not runner:
         raise HTTPException(503, "Runner не инициализирован")
-    task = await runner.submit(req.prompt, req.mode)
+    task = await runner.submit(
+        req.prompt,
+        req.mode,
+        model_mode=req.model_mode,
+        fire_and_forget=getattr(req, "fire_and_forget", False),
+    )
     return {"task_id": task.id, "status": task.status.value}
 
 

@@ -407,3 +407,13 @@ try:
 except ImportError as _e:
     import logging
     logging.getLogger("tools").warning("tools_diet_platform not available: %s", _e)
+
+# ── Дедупликация: убираем дублирующиеся имена инструментов ──
+_seen_tools: set[str] = set()
+_deduped: list = []
+for _t in GEMINI_TOOLS:
+    _name = _t.get("name") or _t.get("function", {}).get("name", "")
+    if _name and _name not in _seen_tools:
+        _seen_tools.add(_name)
+        _deduped.append(_t)
+GEMINI_TOOLS[:] = _deduped

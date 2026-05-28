@@ -366,8 +366,9 @@ class LeviathanAgent:
                     ))
 
             except Exception as e:
-                err_str    = str(e)
+                err_str    = repr(e) or str(e) or f"{type(e).__name__} (no message)"
                 latency_ms = int((time.time() - t_llm) * 1000)
+                logger.error("Agent Gemini exception [iter=%d]: %s", iteration, err_str[:300])
 
                 if "429" in err_str or "quota" in err_str.lower():
                     self.key_pool.mark_rate_limited(key)
@@ -402,11 +403,13 @@ class LeviathanAgent:
                 task.error  = f"Gemini ошибка: {err_str}"
                 logger.error("Agent: %s", task.error)
 
-                # Groq fallback при полном падении Gemini
-                from agent.groq_adapter import run_groq_loop
-                groq_result = await run_groq_loop(self, task)
-                if groq_result:
-                    return groq_result
+                # Groq fallback — только если не GEMINI_ONLY
+                _mode = (task.model_mode or "").upper()
+                if _mode not in ("GEMINI_ONLY", "GEMINI"):
+                    from agent.groq_adapter import run_groq_loop
+                    groq_result = await run_groq_loop(self, task)
+                    if groq_result:
+                        return groq_result
 
                 await self._close_journal(task)
                 return task

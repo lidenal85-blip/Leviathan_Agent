@@ -356,12 +356,18 @@ class AgentRunner:
 
     async def submit(
         self,
-        prompt:     str,
-        mode:       str = "NORMAL",
-        model_mode: str | None = None,
+        prompt:          str,
+        mode:            str = "NORMAL",
+        model_mode:      str | None = None,
+        fire_and_forget: bool = False,
     ) -> "Task":
         from agent.core import Task
-        task = Task(prompt=prompt, mode=mode, model_mode=model_mode)
+        task = Task(
+            prompt          = prompt,
+            mode            = mode,
+            model_mode      = model_mode,
+            fire_and_forget = fire_and_forget,
+        )
         await self.storage.save(task)
         await self._queue.put(task)
         return task
