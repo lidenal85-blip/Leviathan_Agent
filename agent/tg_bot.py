@@ -274,6 +274,7 @@ class AgentRunner:
         agent: "LeviathanAgent",
         storage: "TaskStorage",
         notifier: "TelegramNotifier",
+        kb=None,
     ) -> None:
         self.agent = agent
         self.storage = storage
@@ -281,8 +282,9 @@ class AgentRunner:
         self.current_task: "Task | None" = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._cancel_event = asyncio.Event()
-        self._ws_clients: set = set()  # WebSocket клиенты
-        # Phase 1: пробрасываем ссылку на storage в агент для backoff save
+        self._ws_clients: set = set()
+        self.kb = kb  # KnowledgeBase для сохранения опыта после задач
+        # Phase 1: _storage_ref для backoff save
         self.agent._storage_ref = storage
 
     async def submit(
@@ -325,6 +327,14 @@ class AgentRunner:
                 await self.storage.save(completed)
 
                 if completed.status.value == "done":
+                    # ── KnowledgeBase: сохраняем опыт агента ──
+                    if self.kb:
+                        asyncio.create_task(self.kb.save_entry(
+                            task_id    = completed.id,
+                            summary    = (completed.result or "")[:500],
+                            tools_used = list({s.tool for s in completed.steps}),
+                            outcome    = "done",
+                        ))
                     if task.fire_and_forget:
                         # Fire-and-forget: одна финальная строка
                         result_preview = (completed.result or "")[:300]

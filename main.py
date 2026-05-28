@@ -37,6 +37,8 @@ from execution.idempotency import OperationRegistry
 
 # НОВЫЕ ИМПОРТЫ
 from db.knowledge_base import KnowledgeBase
+from db.route_index    import RouteIndex
+from agent.solution_engine import SolutionEngine, solve_task_tool
 from agent.tools_delivery import register_delivery_tools, inject_delivery_deps
 
 logging.basicConfig(
@@ -75,7 +77,9 @@ agent = LeviathanAgent(
 )
 
 runner: AgentRunner | None = None
-kb: KnowledgeBase | None = None # Объявляем kb глобально
+kb:     KnowledgeBase | None = None
+route_index:    RouteIndex    | None = None
+solution_engine: SolutionEngine | None = None
 
 # ── NullNotifier — без mock ────────────────────────────────────────────────────
 
@@ -92,15 +96,20 @@ class NullNotifier:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global runner, kb
+    global runner, kb, route_index, solution_engine
 
     await storage.init()
     await journal.init()
     await registry.init()
 
-    # НОВЫЙ КОД: Инициализация KnowledgeBase
+    # KnowledgeBase
     kb = KnowledgeBase(settings.db_path.replace(".db", "_kb.db"))
     await kb.init()
+
+    # RouteIndex + SolutionEngine
+    route_index     = RouteIndex(settings.db_path.replace(".db", "_routes.db"))
+    await route_index.init()
+    solution_engine = SolutionEngine(route_index, llm_pool=None)  # pool подключим позже
 
     async def cleanup_loop():
         while True:
@@ -113,7 +122,7 @@ async def lifespan(app: FastAPI):
         from aiogram import Bot, Dispatcher
         bot      = Bot(token=settings.TG_BOT_TOKEN)
         notifier = TelegramNotifier(bot, settings.TG_ADMIN_CHAT_ID)
-        runner   = AgentRunner(agent, storage, notifier)
+        runner   = AgentRunner(agent, storage, notifier, kb=kb)
         dp       = Dispatcher()
         setup_bot_handlers(tg_router, runner, notifier)
 
@@ -171,7 +180,7 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("TG не настроен — работаем без бота")
         notifier = NullNotifier()
-        runner   = AgentRunner(agent, storage, notifier)
+        runner   = AgentRunner(agent, storage, notifier, kb=kb)
         asyncio.create_task(runner.run_loop())
 
     model_mode = getattr(settings, "model_mode", "AUTO")
