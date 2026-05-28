@@ -10,7 +10,11 @@ from typing import TYPE_CHECKING
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import (
+    Message, CallbackQuery,
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
+)
 
 if TYPE_CHECKING:
     from agent.core import LeviathanAgent, Task, TaskStep
@@ -20,6 +24,45 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
+def _main_keyboard() -> ReplyKeyboardMarkup:
+    """Постоянная клавиатура внизу экрана."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="⚡ Статус"),
+                KeyboardButton(text="📋 Задачи"),
+                KeyboardButton(text="📊 Метрики"),
+            ],
+            [
+                KeyboardButton(text="🧠 Модель"),
+                KeyboardButton(text="🔑 Ключи"),
+                KeyboardButton(text="🛑 Стоп"),
+            ],
+        ],
+        resize_keyboard=True,
+        persistent=True,
+    )
+
+
+def _model_keyboard() -> InlineKeyboardMarkup:
+    """Инлайн-кнопки выбора модели."""
+    modes = [
+        ("🧠 AUTO",              "model:AUTO"),
+        ("⚡ Gemini",           "model:GEMINI_ONLY"),
+        ("🟣 Groq",             "model:GROQ_ONLY"),
+        ("🟦 Claude",           "model:CLAUDE_ONLY"),
+        ("⚡🟦 Gemini+Claude",  "model:GEMINI_THINK_CLAUDE"),
+        ("⚡🟣 Gemini+Groq",    "model:GEMINI_GROQ"),
+        ("🟦⚡ Claude+Gemini",  "model:CLAUDE_THINK_GEMINI"),
+        ("🟦🟣 Claude+Groq",    "model:CLAUDE_GROQ"),
+        ("🌀 FULL",             "model:FULL"),
+    ]
+    rows = []
+    for i in range(0, len(modes), 3):
+        rows.append([InlineKeyboardButton(text=t, callback_data=d) for t, d in modes[i:i+3]])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 class TelegramNotifier:
     """Отправляет уведомления в Telegram."""
 
@@ -27,11 +70,13 @@ class TelegramNotifier:
         self.bot = bot
         self.chat_id = admin_chat_id
 
-    async def send(self, text: str, parse_mode: str = "HTML") -> None:
+    async def send(self, text: str, parse_mode: str = "HTML", reply_markup=None) -> None:
         TG_LIMIT = 4000
-        for chunk in [text[i:i+TG_LIMIT] for i in range(0, max(len(text), 1), TG_LIMIT)]:
+        chunks = [text[i:i+TG_LIMIT] for i in range(0, max(len(text), 1), TG_LIMIT)]
+        for i, chunk in enumerate(chunks):
             try:
-                await self.bot.send_message(self.chat_id, chunk, parse_mode=parse_mode)
+                kb = reply_markup if i == len(chunks) - 1 else None
+                await self.bot.send_message(self.chat_id, chunk, parse_mode=parse_mode, reply_markup=kb)
             except Exception as e:
                 logger.error("TG send error: %s", e); break
 
@@ -53,7 +98,7 @@ class TelegramNotifier:
     async def on_task_done(self, task: "Task") -> None:
         duration = task.finished_at - task.created_at
         header = f"✅ <b>Задача #{task.id} завершена</b> ({duration:.0f}s)\n\n"
-        await self.send(header + (task.result or ""))
+        await self.send(header + (task.result or ""), reply_markup=_main_keyboard())
 
     async def on_task_failed(self, task: "Task") -> None:
         await self.send(
@@ -96,15 +141,133 @@ def setup_bot_handlers(
     async def cmd_start(msg: Message) -> None:
         await msg.answer(
             "👋 <b>LEVIATHAN AGENT</b>\n\n"
-            "Команды:\n"
-            "/task <задача> — поставить задачу\n"
-            "/status — статус текущей задачи\n"
-            "/model — переключить LLM (auto/gemini/claude/groq)\n"
-            "/tasks — последние задачи\n"
-            "/stop — остановить агента\n"
-            "/log — последние шаги\n",
+            "Кнопки внизу — быстрый доступ. Или пиши задачу свободным текстом.\n\n"
+            "Команды: /task /status /model /stop /log",
             parse_mode="HTML",
+            reply_markup=_main_keyboard(),
         )
+
+    @router.message(F.text == "⚡ Статус")
+    async def btn_status(msg: Message) -> None:
+        task = agent_runner.current_task
+        q = agent_runner._queue.qsize()
+        if not task:
+            txt = f"💤 Агент свободен"
+            if q: txt += f" | в очереди: {q}"
+            await msg.answer(txt)
+            return
+        steps = task.steps
+        last = steps[-1] if steps else None
+        last_txt = f"\n🔧 {last.tool} ({last.duration:.1f}s)" if last else ""
+        icons = {"running":"🔄","pending":"⏳","done":"✅","failed":"❌","paused":"⏸️"}
+        icon = icons.get(task.status.value, "•")
+        from agent.model_router import get_router
+        mode = get_router().default_mode.value
+        await msg.answer(
+            f"{icon} <b>#{task.id[:8]}</b> — {task.status.value.upper()}\n"
+            f"🧠 Модель: <code>{mode}</code>\n"
+            f"📊 Шагов: {len(steps)}"
+            f"{last_txt}\n"
+            f"💬 <code>{task.prompt[:80]}</code>",
+            parse_mode="HTML"
+        )
+
+    @router.message(F.text == "📋 Задачи")
+    async def btn_tasks(msg: Message) -> None:
+        tasks = await agent_runner.storage.list_recent(8)
+        q = agent_runner._queue.qsize()
+        if not tasks:
+            await msg.answer("📭 История пуста")
+            return
+        icons = {"done":"✅","failed":"❌","running":"🔄","pending":"⏳","paused":"⏸️"}
+        lines = [f"📊 <b>Задачи</b> (очередь: {q})\n"]
+        for t in tasks:
+            ic = icons.get(t.status.value, "•")
+            ts = time.strftime("%H:%M", time.localtime(t.created_at))
+            lines.append(f"{ic} <code>{t.id[:8]}</code> [{ts}] {t.prompt[:45]}")
+        await msg.answer("\n".join(lines), parse_mode="HTML")
+
+    @router.message(F.text == "📊 Метрики")
+    async def btn_metrics(msg: Message) -> None:
+        import httpx
+        from agent.model_router import get_router
+        mode = get_router().default_mode.value
+        tasks = await agent_runner.storage.list_recent(50)
+        done  = sum(1 for t in tasks if t.status.value == "done")
+        failed= sum(1 for t in tasks if t.status.value == "failed")
+        total_steps = sum(len(t.steps) for t in tasks)
+        # Пингуем сервисы экосистемы
+        services = [("Agent",8200),("Arbitr",8095),("VoiceStudio",8120),("KinoVibe",8110)]
+        svc_lines = []
+        async with httpx.AsyncClient(timeout=2) as client:
+            for name, port in services:
+                try:
+                    r = await client.get(f"http://localhost:{port}/health")
+                    svc_lines.append(f"  ✅ {name}:{port}")
+                except Exception:
+                    svc_lines.append(f"  ❌ {name}:{port}")
+        from core_bridge.key_pool import GeminiKeyPool
+        keys_ok = sum(1 for k in agent_runner.agent.key_pool._keys if k.is_available) if hasattr(agent_runner.agent, 'key_pool') else '?'
+        await msg.answer(
+            f"📊 <b>Метрики</b>\n\n"
+            f"🧠 Модель: <code>{mode}</code>\n"
+            f"🔑 Gemini ключей: {keys_ok}/14\n\n"
+            f"📌 Задачи (последние 50):\n"
+            f"  ✅ Выполнено: {done}\n"
+            f"  ❌ Ошибок: {failed}\n"
+            f"  🔧 Шагов всего: {total_steps}\n\n"
+            f"🌐 Сервисы:\n" + "\n".join(svc_lines),
+            parse_mode="HTML"
+        )
+
+    @router.message(F.text == "🧠 Модель")
+    async def btn_model(msg: Message) -> None:
+        from agent.model_router import get_router
+        current = get_router().default_mode.value
+        await msg.answer(
+            f"🧠 <b>Текущая модель:</b> <code>{current}</code>\nВыбери новую:",
+            parse_mode="HTML",
+            reply_markup=_model_keyboard()
+        )
+
+    @router.message(F.text == "🔑 Ключи")
+    async def btn_keys(msg: Message) -> None:
+        try:
+            stats = agent_runner.agent.key_pool.stats()
+            lines = []
+            for s in stats:
+                icon = "✅" if s["available"] else f"🔴 ({s['blocked_for']:.0f}s)"
+                lines.append(f"{icon} <code>...{s['key']}</code> — {s['requests']} запр/{s['failures']} ошиб")
+            await msg.answer(
+                f"🔑 <b>Gemini ключи</b> ({sum(1 for s in stats if s['available'])}/{len(stats)} доступно):\n\n" + "\n".join(lines),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            await msg.answer(f"❌ {e}")
+
+    @router.message(F.text == "🛑 Стоп")
+    async def btn_stop(msg: Message) -> None:
+        if agent_runner.current_task:
+            tid = agent_runner.current_task.id[:8]
+            agent_runner.cancel_current()
+            await msg.answer(f"🛑 Задача #{tid} остановлена")
+        else:
+            await msg.answer("💤 Нет активных задач")
+
+    @router.callback_query(F.data.startswith("model:"))
+    async def cb_model_select(cb: CallbackQuery) -> None:
+        from agent.model_router import ModelMode, get_router
+        mode_str = cb.data.split(":", 1)[1]
+        try:
+            new_mode = ModelMode(mode_str)
+            get_router().default_mode = new_mode
+            await cb.message.edit_text(
+                f"✅ Модель переключена: <code>{new_mode.value}</code>",
+                parse_mode="HTML"
+            )
+        except ValueError:
+            await cb.answer(f"❌ Неизвестный режим: {mode_str}")
+        await cb.answer()
 
     @router.message(Command("task"))
     async def cmd_task(msg: Message) -> None:
