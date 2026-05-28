@@ -180,12 +180,90 @@ def setup_bot_handlers(
             await msg.answer("📭 История пуста")
             return
         icons = {"done":"✅","failed":"❌","running":"🔄","pending":"⏳","paused":"⏸️"}
-        lines = [f"📊 <b>Задачи</b> (очередь: {q})\n"]
+        await msg.answer(f"📊 <b>Задачи</b> (очередь: {q})", parse_mode="HTML")
+
         for t in tasks:
-            ic = icons.get(t.status.value, "•")
-            ts = time.strftime("%H:%M", time.localtime(t.created_at))
-            lines.append(f"{ic} <code>{t.id[:8]}</code> [{ts}] {t.prompt[:45]}")
-        await msg.answer("\n".join(lines), parse_mode="HTML")
+            ic  = icons.get(t.status.value, "•")
+            ts  = time.strftime("%H:%M %d.%m", time.localtime(t.created_at))
+            dur = f" {t.finished_at - t.created_at:.0f}s" if t.finished_at else ""
+            txt = (
+                f"{ic} <code>{t.id[:8]}</code> [{ts}]{dur}\n"
+                f"{t.prompt[:60]}"
+            )
+            # Кнопки действия по статусу
+            btns = []
+            if t.status.value in ("failed", "done"):
+                btns.append(InlineKeyboardButton(
+                    text="🔁 Повторить", callback_data=f"resume:{t.id}:restart"
+                ))
+            elif t.status.value == "paused":
+                btns.append(InlineKeyboardButton(
+                    text="▶️ Продолжить", callback_data=f"resume:{t.id}:hot"
+                ))
+            btns.append(InlineKeyboardButton(
+                text="📋 Подробнее", callback_data=f"taskinfo:{t.id}"
+            ))
+            kb = InlineKeyboardMarkup(inline_keyboard=[btns]) if btns else None
+            await msg.answer(txt, parse_mode="HTML", reply_markup=kb)
+
+    @router.callback_query(F.data.startswith("resume:"))
+    async def cb_resume(cb: CallbackQuery) -> None:
+        _, task_id, mode = cb.data.split(":")
+        task = await agent_runner.storage.get(task_id)
+        if not task:
+            await cb.answer("❌ Задача не найдена")
+            return
+
+        if mode == "hot" and task.status.value == "paused":
+            # Возобновление с последнего шага
+            from agent.core import TaskStatus
+            from execution.pipeline_log import PipelineEvent, plog
+            task.status = TaskStatus.RUNNING
+            task.paused_at = 0.0
+            await agent_runner.storage.save(task)
+            plog(task.id, PipelineEvent.TASK_RESUMED, f"шаг={task.current_step} (TG кнопка)")
+            await agent_runner._queue.put(task)
+            await cb.message.edit_text(
+                f"▶️ Задача <code>{task_id[:8]}</code> возобновлена с шага {task.current_step}",
+                parse_mode="HTML"
+            )
+        else:
+            # Перезапуск с начала
+            new_task = await agent_runner.submit(
+                task.prompt, mode=task.mode,
+                model_mode=task.model_mode,
+                fire_and_forget=task.fire_and_forget,
+            )
+            await cb.message.edit_text(
+                f"🔁 Новая задача <code>{new_task.id[:8]}</code> запущена",
+                parse_mode="HTML"
+            )
+        await cb.answer()
+
+    @router.callback_query(F.data.startswith("taskinfo:"))
+    async def cb_taskinfo(cb: CallbackQuery) -> None:
+        task_id = cb.data.split(":")[1]
+        task = await agent_runner.storage.get(task_id)
+        if not task:
+            await cb.answer("❌ Не найдена")
+            return
+        icons = {"done":"✅","failed":"❌","running":"🔄","pending":"⏳","paused":"⏸️"}
+        ic = icons.get(task.status.value, "•")
+        dur = f"{task.finished_at - task.created_at:.0f}s" if task.finished_at else "—"
+        steps_txt = ""
+        for s in task.steps[-5:]:
+            ok = "✅" if s.get("ok") else "❌"
+            steps_txt += f"  {ok} {s.get('tool','?')} ({s.get('duration',0):.1f}s)\n"
+        err = f"\n❌ <code>{task.error[:200]}</code>" if task.error else ""
+        await cb.message.answer(
+            f"{ic} <b>Задача #{task.id[:8]}</b>\n"
+            f"Статус: <b>{task.status.value}</b> | Время: {dur}\n"
+            f"Шагов: {len(task.steps)}\n\n"
+            f"<code>{task.prompt[:150]}</code>\n\n"
+            f"{steps_txt}{err}",
+            parse_mode="HTML"
+        )
+        await cb.answer()
 
     @router.message(F.text == "📊 Метрики")
     async def btn_metrics(msg: Message) -> None:
