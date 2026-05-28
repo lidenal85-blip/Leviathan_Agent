@@ -21,12 +21,20 @@ logger = logging.getLogger("model_router")
 # ── Режимы ────────────────────────────────────────────────────────────────────
 
 class ModelMode(str, Enum):
-    GEMINI_ONLY         = "GEMINI_ONLY"
-    CLAUDE_ONLY         = "CLAUDE_ONLY"
-    GROQ_ONLY           = "GROQ_ONLY"
-    GEMINI_THINK_CLAUDE = "GEMINI_THINK_CLAUDE"
-    CLAUDE_THINK_GEMINI = "CLAUDE_THINK_GEMINI"
-    AUTO                = "AUTO"
+    # ── Single ──────────────────────────────────────────────────────
+    GEMINI_ONLY         = "GEMINI_ONLY"         # Быстро, дешево
+    CLAUDE_ONLY         = "CLAUDE_ONLY"         # Архитектура, код, анализ
+    GROQ_ONLY           = "GROQ_ONLY"           # Ультрабыстро, простые задачи
+    # ── Dual: Gemini + X ───────────────────────────────────────────
+    GEMINI_THINK_CLAUDE = "GEMINI_THINK_CLAUDE" # Gemini ведёт loop, Claude → сложные шаги
+    GEMINI_GROQ         = "GEMINI_GROQ"         # Gemini primary, Groq fallback (дешёво)
+    # ── Dual: Claude + X ───────────────────────────────────────────
+    CLAUDE_THINK_GEMINI = "CLAUDE_THINK_GEMINI" # Claude планирует, Gemini исполняет
+    CLAUDE_GROQ         = "CLAUDE_GROQ"         # Claude → архитектура, Groq → быстрые операции
+    # ── Triple / Full ───────────────────────────────────────────────
+    FULL                = "FULL"                # Все 3: Claude план + Gemini loop + Groq fast
+    # ── Meta ───────────────────────────────────────────────────────────
+    AUTO                = "AUTO"                # Автодетект по содержимом задачи
 
 
 @dataclass(frozen=True)
@@ -124,13 +132,15 @@ class ModelRouter:
             use_t = any(k.lower() in text for k in THINKING_KEYWORDS)
             return RouteDecision("claude", use_t, "CLAUDE_ONLY mode")
 
+        if mode == ModelMode.GROQ_ONLY:
+            return RouteDecision("groq", False, "GROQ_ONLY mode")
+
         # Скоринг
         claude_score = sum(1 for k in CLAUDE_KEYWORDS  if k.lower() in text)
         gemini_score = sum(1 for k in GEMINI_KEYWORDS  if k.lower() in text)
         use_thinking = any(k.lower() in text for k in THINKING_KEYWORDS)
 
         if mode == ModelMode.GEMINI_THINK_CLAUDE:
-            # Gemini ведёт loop; Claude только если явно аналитика
             if claude_score >= 2:
                 return RouteDecision(
                     "claude", use_thinking,
@@ -138,8 +148,14 @@ class ModelRouter:
                 )
             return RouteDecision("gemini", False, "GEMINI_THINK_CLAUDE: default gemini")
 
+        if mode == ModelMode.GEMINI_GROQ:
+            # Gemini primary, Groq для коротких операций (быстро и дешево)
+            if gemini_score >= 2:
+                return RouteDecision("gemini", False,
+                    f"GEMINI_GROQ: gemini_score={gemini_score}")
+            return RouteDecision("groq", False, "GEMINI_GROQ: short/fast task → groq")
+
         if mode == ModelMode.CLAUDE_THINK_GEMINI:
-            # Claude планирует; Gemini только для чистых execution-шагов
             if gemini_score > claude_score and gemini_score >= 2:
                 return RouteDecision(
                     "gemini", False,
@@ -149,6 +165,24 @@ class ModelRouter:
                 "claude", use_thinking,
                 f"CLAUDE_THINK_GEMINI: planning step, claude_score={claude_score}"
             )
+
+        if mode == ModelMode.CLAUDE_GROQ:
+            # Claude → архитектура/анализ, Groq → быстрые bash/файлы
+            if gemini_score >= 2 or (claude_score == 0 and gemini_score == 0):
+                return RouteDecision("groq", False,
+                    f"CLAUDE_GROQ: fast ops → groq, gemini_score={gemini_score}")
+            return RouteDecision("claude", use_thinking,
+                f"CLAUDE_GROQ: analytical → claude, claude_score={claude_score}")
+
+        if mode == ModelMode.FULL:
+            # Все 3: планирование → Claude, исполнение → Gemini, быстро → Groq
+            if step_index == 0 or claude_score >= 2:
+                return RouteDecision("claude", use_thinking,
+                    f"FULL: plan/analyze → claude, step={step_index}")
+            if gemini_score >= 1:
+                return RouteDecision("gemini", False,
+                    f"FULL: execution → gemini, gemini_score={gemini_score}")
+            return RouteDecision("groq", False, "FULL: fast ops → groq")
 
         # ── AUTO ──────────────────────────────────────────────────────────────
         # Первый шаг (планирование) — всегда через Claude если скор одинаковый

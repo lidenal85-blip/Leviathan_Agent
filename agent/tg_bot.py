@@ -269,7 +269,10 @@ def setup_bot_handlers(
                 "• <code>claude</code> — только Claude (архитектура, код)\n"
                 "• <code>groq</code> — только Groq\n"
                 "• <code>gemini_think_claude</code> — Gemini loop + Claude для сложных шагов\n"
-                "• <code>claude_think_gemini</code> — Claude планирует, Gemini исполняет"
+                "• <code>claude_think_gemini</code> — Claude планирует, Gemini исполняет\n"
+                "• <code>gemini_groq</code> — Gemini + Groq дешёвый режим\n"
+                "• <code>claude_groq</code> — Claude анализ + Groq быстрые операции\n"
+                "• <code>full</code> — Claude+Gemini+Groq все три"
             )
             await msg.answer(modes_desc, parse_mode="HTML")
             return
@@ -281,7 +284,10 @@ def setup_bot_handlers(
             "CLAUDE": "CLAUDE_ONLY",
             "GROQ":   "GROQ_ONLY",
             "GEMINI_THINK_CLAUDE": "GEMINI_THINK_CLAUDE",
+            "GEMINI_GROQ":         "GEMINI_GROQ",
             "CLAUDE_THINK_GEMINI": "CLAUDE_THINK_GEMINI",
+            "CLAUDE_GROQ":         "CLAUDE_GROQ",
+            "FULL":   "FULL",
         }
         mode_str = alias_map.get(raw, raw)
         try:
@@ -304,7 +310,7 @@ def setup_bot_handlers(
         except ValueError:
             await msg.answer(
                 f"❌ Неизвестный режим: <code>{raw}</code>\n"
-                "Используй: auto | gemini | claude | groq | gemini_think_claude | claude_think_gemini",
+                "Используй: auto|gemini|claude|groq|gemini_groq|gemini_think_claude|claude_think_gemini|claude_groq|full",
                 parse_mode="HTML",
             )
 
