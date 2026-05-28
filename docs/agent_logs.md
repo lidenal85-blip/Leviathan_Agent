@@ -331,3 +331,37 @@ curl http://localhost:8200/health
 **Создано:** pipeline_log.py, backoff_scheduler.py  
 **Изменено:** core.py, storage.py, tg_bot.py, key_pool.py  
 **Остаток:** Level 6 (resume_manager, project_orchestrator), test_pool.py fix
+
+---
+## Зарезервировано: сборка Cline из исходников (2026-05-28)
+
+Причина отложения: Ivy Bridge CPU не поддерживает AVX2, pre-built бинарь падает.
+
+Цель: получить рабочий `cline connect telegram` для управления агентом через Telegram.
+
+План сборки:
+1. Скачать исходники: git clone https://github.com/cline/cline
+2. Найти флаги AVX2 в bun build конфиге (bunfig.toml или CMakeLists)
+3. Собрать без AVX2: CFLAGS="-march=ivybridge" bun build
+4. Проверить на сервере
+
+Альтернатива: реализовать TG-коннектор самостоятельно поверх LEVIATHAN Agent.
+
+---
+
+## Сессия 2026-05-28 — Тест цикла агента (RAG учебник)
+**Модель:** Claude Sonnet 4.6 (MCP) + Gemini 2.5-flash (агент)  
+**Задача:** запустить агента на реальную задачу, мониторинг  
+**Статус:** ✅ Завершена
+
+### Обнаруженные баги (все исправлены)
+- Дубликат send_file_to_tg в GEMINI_TOOLS → ValueError('') → дедупликация в tools.py
+- model_mode не проходил через POST /api/tasks → исправлен в main.py
+- fire_and_forget не проходил через API → добавлен в TaskRequest
+- Groq fallback игнорировал GEMINI_ONLY → исправлен в core.py
+- str(e) давал пустую строку для gRPC ошибок → repr(e)
+
+### Результат теста
+- Задача c7e6f480: status=done, steps=4, /tmp/rag/2_1.html (19Кб, 1242 слова)
+- Шаги: bash_tool → write_file → bash_tool → kb_save
+- KnowledgeBase автоматически зафиксировала выполненную задачу
